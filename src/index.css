@@ -1,0 +1,40 @@
+/* 1. Import Inter font */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+
+/* 2. Tailwind directives */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 3. Theme variables */
+
+:root {
+    --hp-primary: #0f766e;
+    --hp-accent: #0369a1;
+    --hp-bg: #f8fafc;
+    --hp-surface: #ffffff;
+    --hp-success: #10b981;
+    --hp-warning: #f59e0b;
+    --hp-danger: #ef4444;
+}
+
+
+/* 4. Full height */
+
+html,
+body,
+#root {
+    height: 110%;
+}
+
+
+/* 5. Body styling (using Tailwind utilities via @apply) */
+
+body {
+    @apply bg-[var(--hp-bg)] text-gray-800;
+    font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
