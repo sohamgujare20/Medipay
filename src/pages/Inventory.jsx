@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from "react";
-import { Plus, X } from "lucide-react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
+import { Plus, X, Trash2, Edit3, Save } from "lucide-react";
 
-// Utility to calculate days until expiry
+// 🧮 Utility: calculate days until expiry
 function daysUntil(dateISO) {
   const d = new Date(dateISO);
   const now = new Date();
@@ -9,7 +10,7 @@ function daysUntil(dateISO) {
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
-// Status badge for expiry or stock
+// 🏷 Status Badge Component
 function StatusBadge({ qty, expiry }) {
   const days = daysUntil(expiry);
   let label = "OK";
@@ -21,6 +22,9 @@ function StatusBadge({ qty, expiry }) {
   } else if (qty <= 5) {
     label = "Low Stock";
     color = "bg-orange-100 text-orange-700";
+  } else if (days <= 30) {
+    label = "Expiring Soon";
+    color = "bg-yellow-100 text-yellow-700";
   }
 
   return (
@@ -31,7 +35,7 @@ function StatusBadge({ qty, expiry }) {
 }
 
 export default function Inventory() {
-  const [inventory, setInventory] = useState([]); // Empty data
+  const [inventory, setInventory] = useState([]);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [newMed, setNewMed] = useState({
@@ -41,19 +45,83 @@ export default function Inventory() {
     qty: "",
     expiry: "",
   });
+  const [editingId, setEditingId] = useState(null);
+  const [editData, setEditData] = useState({});
+  const [filteredData, setFilteredData] = useState([]);
 
-  // Filter inventory based on search
-  const filtered = useMemo(() => {
-    if (!search.trim()) return inventory;
+  const location = useLocation();
+  const isFirstRender = useRef(true);
+
+  // ✅ Load inventory from localStorage initially
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("inventory") || "[]");
+      if (Array.isArray(stored)) setInventory(stored);
+    } catch (error) {
+      console.error("Failed to load inventory:", error);
+    }
+  }, []);
+
+  // ✅ Sync updates from Billing (localStorage change)
+  useEffect(() => {
+    const handleStorageChange = (event) => {
+      if (event.key === "inventory") {
+        try {
+          const updated = JSON.parse(event.newValue || "[]");
+          if (Array.isArray(updated)) setInventory(updated);
+        } catch (error) {
+          console.error("Failed to sync inventory:", error);
+        }
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
+
+  // ✅ Save inventory changes (except first render)
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    try {
+      localStorage.setItem("inventory", JSON.stringify(inventory));
+    } catch (error) {
+      console.error("Failed to save inventory:", error);
+    }
+  }, [inventory]);
+
+  // ✅ Handle filtering via URL (low stock / expired)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const filter = params.get("filter");
+
+    const now = new Date();
+
+    let data = [...inventory];
+
+    if (filter === "lowstock") {
+      data = data.filter((item) => item.qty <= 5);
+    } else if (filter === "expired") {
+      data = data.filter((item) => new Date(item.expiry) < now);
+    }
+
+    setFilteredData(data);
+  }, [location, inventory]);
+
+  // 🔍 Search within current filter
+  const finalList = useMemo(() => {
+    if (!search.trim()) return filteredData.length ? filteredData : inventory;
     const q = search.toLowerCase();
-    return inventory.filter(
+    const source = filteredData.length ? filteredData : inventory;
+    return source.filter(
       (item) =>
         item.name.toLowerCase().includes(q) ||
         item.batch.toLowerCase().includes(q)
     );
-  }, [search, inventory]);
+  }, [search, inventory, filteredData]);
 
-  // Add new medicine
+  // ➕ Add new medicine
   function addMedicine(e) {
     e.preventDefault();
     if (
@@ -66,19 +134,55 @@ export default function Inventory() {
       alert("Please fill all fields");
       return;
     }
-    const id = "M" + String(inventory.length + 1).padStart(3, "0");
-    setInventory((prev) => [
-      ...prev,
-      {
-        ...newMed,
-        id,
-        qty: Number(newMed.qty),
-        price: Number(newMed.price),
-      },
-    ]);
+
+    const id = "M" + String(Date.now()).slice(-4);
+    const newMedicine = {
+      ...newMed,
+      id,
+      qty: Number(newMed.qty),
+      price: Number(newMed.price),
+    };
+
+    const updated = [...inventory, newMedicine];
+    setInventory(updated);
+    localStorage.setItem("inventory", JSON.stringify(updated));
     setNewMed({ name: "", batch: "", price: "", qty: "", expiry: "" });
     setShowModal(false);
   }
+
+  // 🗑 Delete a medicine
+  function deleteMedicine(id) {
+    if (window.confirm("Are you sure you want to delete this medicine?")) {
+      const updated = inventory.filter((item) => item.id !== id);
+      setInventory(updated);
+      localStorage.setItem("inventory", JSON.stringify(updated));
+    }
+  }
+
+  // ✏️ Start editing
+  function startEdit(item) {
+    setEditingId(item.id);
+    setEditData({ ...item });
+  }
+
+  // 💾 Save edits
+  function saveEdit(id) {
+    const updated = inventory.map((item) =>
+      item.id === id
+        ? { ...editData, qty: Number(editData.qty), price: Number(editData.price) }
+        : item
+    );
+    setInventory(updated);
+    localStorage.setItem("inventory", JSON.stringify(updated));
+    setEditingId(null);
+  }
+
+  // 🧾 Count Expired & Low Stock for display
+  const expiredCount = inventory.filter(
+    (item) => new Date(item.expiry) < new Date()
+  ).length;
+
+  const lowStockCount = inventory.filter((item) => item.qty <= 5).length;
 
   return (
     <div>
@@ -86,7 +190,20 @@ export default function Inventory() {
         Inventory
       </h1>
 
-      {/* Search + Add button */}
+      {/* Summary Section */}
+      <div className="flex flex-wrap gap-3 mb-4">
+        <div className="px-4 py-2 rounded-lg bg-red-100 text-red-700 font-medium">
+          Expired: {expiredCount}
+        </div>
+        <div className="px-4 py-2 rounded-lg bg-orange-100 text-orange-700 font-medium">
+          Low Stock: {lowStockCount}
+        </div>
+        <div className="px-4 py-2 rounded-lg bg-green-100 text-green-700 font-medium">
+          Total Items: {inventory.length}
+        </div>
+      </div>
+
+      {/* Search + Add */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <input
           type="text"
@@ -114,37 +231,120 @@ export default function Inventory() {
               <th className="text-right px-4 py-3 text-sm">Price</th>
               <th className="text-left px-4 py-3 text-sm">Expiry</th>
               <th className="text-center px-4 py-3 text-sm">Status</th>
+              <th className="text-center px-4 py-3 text-sm">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {finalList.length === 0 ? (
               <tr>
-                <td
-                  colSpan={6}
-                  className="text-center text-gray-500 py-6"
-                >
-                  No items in inventory.
+                <td colSpan={7} className="text-center text-gray-500 py-6">
+                  No items found.
                 </td>
               </tr>
             ) : (
-              filtered.map((item, i) => (
+              finalList.map((item, i) => (
                 <tr
                   key={item.id}
                   className={`hover:bg-gray-50 ${
                     i % 2 === 0 ? "bg-white" : "bg-gray-50"
                   }`}
                 >
-                  <td className="px-4 py-3">{item.name}</td>
-                  <td className="px-4 py-3">{item.batch}</td>
-                  <td className="px-4 py-3 text-right">{item.qty}</td>
-                  <td className="px-4 py-3 text-right">
-                    ₹ {item.price.toFixed(2)}
+                  <td className="px-4 py-3">
+                    {editingId === item.id ? (
+                      <input
+                        type="text"
+                        value={editData.name}
+                        onChange={(e) =>
+                          setEditData({ ...editData, name: e.target.value })
+                        }
+                        className="w-full px-2 py-1 border rounded"
+                      />
+                    ) : (
+                      item.name
+                    )}
                   </td>
                   <td className="px-4 py-3">
-                    {new Date(item.expiry).toLocaleDateString()}
+                    {editingId === item.id ? (
+                      <input
+                        type="text"
+                        value={editData.batch}
+                        onChange={(e) =>
+                          setEditData({ ...editData, batch: e.target.value })
+                        }
+                        className="w-full px-2 py-1 border rounded"
+                      />
+                    ) : (
+                      item.batch
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {editingId === item.id ? (
+                      <input
+                        type="number"
+                        value={editData.qty}
+                        onChange={(e) =>
+                          setEditData({ ...editData, qty: e.target.value })
+                        }
+                        className="w-20 px-2 py-1 border rounded text-right"
+                      />
+                    ) : (
+                      item.qty
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {editingId === item.id ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={editData.price}
+                        onChange={(e) =>
+                          setEditData({ ...editData, price: e.target.value })
+                        }
+                        className="w-20 px-2 py-1 border rounded text-right"
+                      />
+                    ) : (
+                      `₹ ${item.price.toFixed(2)}`
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {editingId === item.id ? (
+                      <input
+                        type="date"
+                        value={editData.expiry}
+                        onChange={(e) =>
+                          setEditData({ ...editData, expiry: e.target.value })
+                        }
+                        className="w-full px-2 py-1 border rounded"
+                      />
+                    ) : (
+                      new Date(item.expiry).toLocaleDateString()
+                    )}
                   </td>
                   <td className="px-4 py-3 text-center">
                     <StatusBadge qty={item.qty} expiry={item.expiry} />
+                  </td>
+                  <td className="px-4 py-3 text-center flex justify-center gap-2">
+                    {editingId === item.id ? (
+                      <button
+                        onClick={() => saveEdit(item.id)}
+                        className="flex items-center gap-1 text-green-700 hover:text-green-900"
+                      >
+                        <Save size={16} /> Save
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => startEdit(item)}
+                        className="flex items-center gap-1 text-blue-600 hover:text-blue-800"
+                      >
+                        <Edit3 size={16} /> Edit
+                      </button>
+                    )}
+                    <button
+                      onClick={() => deleteMedicine(item.id)}
+                      className="text-red-600 hover:text-red-800 flex items-center gap-1"
+                    >
+                      <Trash2 size={16} /> Delete
+                    </button>
                   </td>
                 </tr>
               ))
@@ -153,7 +353,7 @@ export default function Inventory() {
         </table>
       </div>
 
-      {/* Add Medicine Modal */}
+      {/* ➕ Add Medicine Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6 relative">
