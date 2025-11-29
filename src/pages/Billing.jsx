@@ -1,17 +1,156 @@
-import React, { useState, useEffect } from "react";
+// src/pages/Billing.jsx
+import React, { useState, useEffect, useRef } from "react";
 import { Search, Trash2 } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
+import { supabase } from "../supabaseClient"; // <- ensure path is correct
 
 export default function Billing() {
-  // ✅ Load medicines from Inventory (localStorage)
   const [medicines, setMedicines] = useState([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [cart, setCart] = useState([]);
+  const [paymentMode, setPaymentMode] = useState("online");
+  const [generateBill, setGenerateBill] = useState(true);
+  const [customerName, setCustomerName] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [daysToRefill, setDaysToRefill] = useState("");
+  const [billNo, setBillNo] = useState(1);
+  const [errors, setErrors] = useState({});
+  const realtimeChannelRef = useRef(null);
+
+  // ---------- Load medicines from Supabase inventory (with localStorage fallback) ----------
+  const loadMedicines = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("inventory")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      // normalize numeric fields
+      const normalized = (data || []).map((r) => ({
+        ...r,
+        qty: Number(r.qty ?? 0),
+        price: Number(r.price ?? 0),
+        // expiry might be returned as string e.g. "2025-12-31"
+        expiry: r.expiry ?? null,
+      }));
+
+      setMedicines(normalized);
+      // also persist to localStorage for compatibility with older code expecting it
+      try {
+        localStorage.setItem("inventory", JSON.stringify(normalized));
+      } catch (e) {
+        // ignore storage errors
+      }
+    } catch (err) {
+      console.error("Supabase inventory load failed, fallback to localStorage:", err);
+      const storedInventory = JSON.parse(localStorage.getItem("inventory") || "[]");
+      setMedicines(storedInventory);
+    }
+  };
 
   useEffect(() => {
-    const storedInventory = JSON.parse(localStorage.getItem("inventory") || "[]");
-    setMedicines(storedInventory);
+    loadMedicines();
+
+    // subscribe to realtime inventory changes so billing updates live
+    try {
+      const channel = supabase
+        .channel("public:inventory")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "inventory" },
+          (payload) => {
+            // payload.eventType: INSERT | UPDATE | DELETE
+            const rec = payload.new ?? payload.old;
+            setMedicines((prev) => {
+              if (payload.eventType === "INSERT") {
+                return [ { ...rec, qty: Number(rec.qty ?? 0), price: Number(rec.price ?? 0) }, ...prev ];
+              } else if (payload.eventType === "UPDATE") {
+                return prev.map((m) => (m.id === rec.id ? { ...rec, qty: Number(rec.qty ?? 0), price: Number(rec.price ?? 0) } : m));
+              } else if (payload.eventType === "DELETE") {
+                return prev.filter((m) => m.id !== rec.id);
+              }
+              return prev;
+            });
+            // also keep localStorage in sync
+            try {
+              const updated = (prev) => {
+                if (payload.eventType === "INSERT") return [rec, ...prev];
+                if (payload.eventType === "UPDATE") return prev.map((m) => (m.id === rec.id ? rec : m));
+                if (payload.eventType === "DELETE") return prev.filter((m) => m.id !== rec.id);
+                return prev;
+              };
+              // use current medicines value to build new array then store
+              setTimeout(() => {
+                try {
+                  const cur = JSON.parse(localStorage.getItem("inventory") || "[]");
+                  const newLocal = updated(cur);
+                  localStorage.setItem("inventory", JSON.stringify(newLocal));
+                } catch (e) {}
+              }, 0);
+            } catch (e) {}
+          }
+        );
+
+      channel.subscribe();
+      realtimeChannelRef.current = channel;
+    } catch (e) {
+      console.warn("Realtime subscription failed:", e);
+    }
+
+    return () => {
+      // cleanup realtime subscription
+      try {
+        if (realtimeChannelRef.current) {
+          supabase.removeChannel(realtimeChannelRef.current);
+          realtimeChannelRef.current = null;
+        }
+      } catch (e) {
+        // older supabase clients may differ; ignore cleanup errors
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ Auto-update Billing when Inventory changes (live sync)
+  // ---------- Load bill number (first missing positive integer) ----------
+  const computeNextBillNo = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("bills")
+        .select("bill_no")
+        .order("bill_no", { ascending: true });
+
+      if (error) throw error;
+
+      const usedNumbers = (data || []).map((r) => Number(r.bill_no)).filter(Boolean).sort((a, b) => a - b);
+      const nextAvailable =
+        usedNumbers.findIndex((num, i) => num !== i + 1) === -1
+          ? usedNumbers.length + 1
+          : usedNumbers.findIndex((num, i) => num !== i + 1) + 1;
+
+      setBillNo(nextAvailable);
+    } catch (err) {
+      console.error("Failed to compute bill number from Supabase, fallback to localStorage bills:", err);
+      const existingBills = JSON.parse(localStorage.getItem("bills") || "[]");
+      if (existingBills.length > 0) {
+        const usedNumbers = existingBills.map((b) => b.billNo).sort((a, b) => a - b);
+        const nextAvailable =
+          usedNumbers.findIndex((num, i) => num !== i + 1) === -1
+            ? usedNumbers.length + 1
+            : usedNumbers.findIndex((num, i) => num !== i + 1) + 1;
+        setBillNo(nextAvailable);
+      } else {
+        setBillNo(1);
+      }
+    }
+  };
+
+  useEffect(() => {
+    computeNextBillNo();
+  }, []);
+
+  // ---------- LocalStorage listener (for compatibility with other pages) ----------
   useEffect(() => {
     const handleStorageChange = (event) => {
       if (event.key === "inventory") {
@@ -23,44 +162,19 @@ export default function Billing() {
     return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
-  const [searchTerm, setSearchTerm] = useState("");
-  const [cart, setCart] = useState([]);
-  const [paymentMode, setPaymentMode] = useState("online");
-  const [generateBill, setGenerateBill] = useState(true);
-  const [customerName, setCustomerName] = useState("");
-  const [mobile, setMobile] = useState("");
-  const [daysToRefill, setDaysToRefill] = useState("");
-  const [billNo, setBillNo] = useState(1);
-  const [errors, setErrors] = useState({});
-
-  // Load Bill No
-  useEffect(() => {
-    const existingBills = JSON.parse(localStorage.getItem("bills") || "[]");
-    if (existingBills.length > 0) {
-      const usedNumbers = existingBills.map((b) => b.billNo).sort((a, b) => a - b);
-      const nextAvailable =
-        usedNumbers.findIndex((num, i) => num !== i + 1) === -1
-          ? usedNumbers.length + 1
-          : usedNumbers.findIndex((num, i) => num !== i + 1) + 1;
-      setBillNo(nextAvailable);
-    } else {
-      setBillNo(1);
-    }
-  }, []);
-
+  // ---------- Filtering ----------
   const filteredMedicines = medicines.filter(
     (med) =>
-      med.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      med.batch.toLowerCase().includes(searchTerm.toLowerCase())
+      (med.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (med.batch || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // ---------- Cart handlers ----------
   const handleAddToCart = (med) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.id === med.id);
       if (existing) {
-        return prev.map((item) =>
-          item.id === med.id ? { ...item, qty: item.qty + 1 } : item
-        );
+        return prev.map((item) => (item.id === med.id ? { ...item, qty: item.qty + 1 } : item));
       }
       return [...prev, { ...med, qty: 1 }];
     });
@@ -68,9 +182,7 @@ export default function Billing() {
 
   const handleQtyChange = (id, qty) => {
     setCart((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, qty: Math.max(1, qty) } : item
-      )
+      prev.map((item) => (item.id === id ? { ...item, qty: Math.max(1, qty) } : item))
     );
   };
 
@@ -78,12 +190,14 @@ export default function Billing() {
     setCart((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const subtotal = cart.reduce((acc, item) => acc + item.price * item.qty, 0);
+  // ---------- Totals ----------
+  const subtotal = cart.reduce((acc, item) => acc + Number(item.price || 0) * Number(item.qty || 0), 0);
   const tax = subtotal * 0.05;
   const grandTotal = subtotal + tax;
 
   const today = new Date();
   const getRowClass = (expiryDate) => {
+    if (!expiryDate) return "";
     const expiry = new Date(expiryDate);
     if (expiry < today) return "bg-red-100";
     const diffDays = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
@@ -91,93 +205,165 @@ export default function Billing() {
     return "";
   };
 
-  // ✅ Validate inputs (inline errors)
+  // ---------- Validation ----------
   const validateInputs = () => {
     const newErrors = {};
-
     if (generateBill) {
       if (!customerName.trim()) newErrors.customerName = "Customer name is required.";
       if (!mobile.trim()) newErrors.mobile = "Mobile number is required.";
-      else if (!/^\d{10}$/.test(mobile))
-        newErrors.mobile = "Enter a valid 10-digit mobile number.";
+      else if (!/^\d{10}$/.test(mobile)) newErrors.mobile = "Enter a valid 10-digit mobile number.";
       if (!daysToRefill) newErrors.daysToRefill = "Days to refill is required.";
-      else if (Number(daysToRefill) <= 0)
-        newErrors.daysToRefill = "Enter a valid number greater than 0.";
+      else if (Number(daysToRefill) <= 0) newErrors.daysToRefill = "Enter a valid number greater than 0.";
     }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  // 🧾 Save Bill + Reduce Stock
-  const saveBill = (auto = false) => {
+  // ---------- Save Bill + Reduce Stock (Supabase) ----------
+  const saveBill = async (auto = false) => {
     if (cart.length === 0) {
       setErrors({ cart: "Please add at least one medicine to generate a bill." });
       return;
     }
-
     if (!validateInputs()) return;
 
-    const existingBills = JSON.parse(localStorage.getItem("bills") || "[]");
-    const usedNumbers = existingBills.map((b) => b.billNo).sort((a, b) => a - b);
-    const nextAvailable =
-      usedNumbers.findIndex((num, i) => num !== i + 1) === -1
-        ? usedNumbers.length + 1
-        : usedNumbers.findIndex((num, i) => num !== i + 1) + 1;
+    try {
+      // compute nextAvailable again just before insert to avoid collisions
+      const { data: billsData, error: billsErr } = await supabase
+        .from("bills")
+        .select("bill_no")
+        .order("bill_no", { ascending: true });
 
-    const newBill = {
-      id: Date.now(),
-      billNo: nextAvailable,
-      date: new Date().toLocaleString(),
-      total: grandTotal.toFixed(2),
-      paymentMode,
-      customerName: customerName.trim() || "Guest",
-      mobile,
-      daysToRefill,
-      items: cart,
-    };
+      if (billsErr) throw billsErr;
+      const usedNumbers = (billsData || []).map((r) => Number(r.bill_no)).filter(Boolean).sort((a, b) => a - b);
+      const nextAvailable =
+        usedNumbers.findIndex((num, i) => num !== i + 1) === -1
+          ? usedNumbers.length + 1
+          : usedNumbers.findIndex((num, i) => num !== i + 1) + 1;
 
-    // ✅ Reduce stock from inventory for sold medicines
-    let inventory = JSON.parse(localStorage.getItem("inventory") || "[]");
-    const updatedInventory = inventory.map((item) => {
-      const sold = cart.find(
-        (c) => c.name === item.name && c.batch === item.batch
-      );
-      if (sold) {
-        const newQty = Math.max(item.qty - sold.qty, 0);
-        return { ...item, qty: newQty };
+      // create bill object to save locally and to Supabase
+      const newBill = {
+        bill_no: nextAvailable,
+        total: Number(grandTotal.toFixed(2)),
+        payment_mode: paymentMode,
+        customer_name: customerName.trim() || "Guest",
+        mobile,
+        days_to_refill: daysToRefill ? Number(daysToRefill) : null,
+        items: cart.map((c) => ({
+          id: c.id,
+          name: c.name,
+          batch: c.batch,
+          qty: Number(c.qty),
+          price: Number(c.price),
+        })),
+      };
+
+      // 1) Reduce stock in Supabase per item (safe: never negative)
+      // We'll update each item individually (you could create a function to do a single SQL txn, but Supabase JS updates per-row).
+      const updatePromises = newBill.items.map(async (sold) => {
+        // fetch current qty to compute new qty (to avoid race)
+        const { data: currentRows, error: fetchErr } = await supabase
+          .from("inventory")
+          .select("qty")
+          .eq("id", sold.id)
+          .limit(1)
+          .single();
+
+        if (fetchErr) {
+          // if fetch failed just try to still perform an update using GREATEST in SQL (fallback)
+          // NOTE: Supabase client doesn't let you run raw SQL easily here; so we'll attempt to update with current knowledge in local state
+          const localItem = medicines.find((m) => m.id === sold.id);
+          const curQty = localItem ? Number(localItem.qty || 0) : 0;
+          const newQtyLocal = Math.max(curQty - sold.qty, 0);
+          return supabase.from("inventory").update({ qty: newQtyLocal }).eq("id", sold.id);
+        } else {
+          const curQty = Number(currentRows.qty ?? 0);
+          const newQty = Math.max(curQty - sold.qty, 0);
+          return supabase.from("inventory").update({ qty: newQty }).eq("id", sold.id);
+        }
+      });
+
+      await Promise.all(updatePromises);
+
+      // 2) Insert bill into Supabase bills table if generateBill is true
+      if (generateBill) {
+        const { data: inserted, error: insertErr } = await supabase
+          .from("bills")
+          .insert([{ ...newBill }])
+          .select()
+          .single();
+
+        if (insertErr) throw insertErr;
+
+        // mirror inserted bill into localStorage for compatibility
+        try {
+          const existingBills = JSON.parse(localStorage.getItem("bills") || "[]");
+          const localCopy = {
+            id: inserted.id,
+            billNo: inserted.bill_no,
+            date: new Date(inserted.created_at).toLocaleString(),
+            total: Number(inserted.total).toFixed(2),
+            paymentMode: inserted.payment_mode,
+            customerName: inserted.customer_name,
+            mobile: inserted.mobile,
+            daysToRefill: inserted.days_to_refill,
+            items: inserted.items,
+          };
+          localStorage.setItem("bills", JSON.stringify([localCopy, ...existingBills]));
+        } catch (e) {
+          console.warn("Failed to write bills to localStorage (non-fatal).", e);
+        }
+      } else {
+        // If not saving to Receipts, still keep local bills array for UX parity
+        try {
+          const existingBills = JSON.parse(localStorage.getItem("bills") || "[]");
+          const localCopy = {
+            id: Date.now(),
+            billNo: nextAvailable,
+            date: new Date().toLocaleString(),
+            total: Number(newBill.total).toFixed(2),
+            paymentMode: newBill.payment_mode,
+            customerName: newBill.customer_name,
+            mobile: newBill.mobile,
+            daysToRefill: newBill.days_to_refill,
+            items: newBill.items,
+          };
+          localStorage.setItem("bills", JSON.stringify([localCopy, ...existingBills]));
+        } catch (e) {}
       }
-      return item;
-    });
-    localStorage.setItem("inventory", JSON.stringify(updatedInventory));
 
-    // ✅ Save Bill only if "Save to Receipts" is ON
-    if (generateBill) {
-      localStorage.setItem("bills", JSON.stringify([newBill, ...existingBills]));
+      alert(
+        generateBill
+          ? "✅ Bill saved to Receipts and stock updated!"
+          : "✅ Bill generated successfully (not saved to Receipts)."
+      );
+
+      // clear cart + inputs and prepare next bill no
+      setCart([]);
+      setCustomerName("");
+      setMobile("");
+      setDaysToRefill("");
+      setErrors({});
+      setBillNo(nextAvailable + 1);
+
+      // refresh medicines to reflect updated stock
+      loadMedicines();
+    } catch (err) {
+      console.error("Failed to save bill:", err);
+      alert("Error saving bill. Check console for details.");
     }
-
-    alert(
-      generateBill
-        ? "✅ Bill saved to Receipts and stock updated!"
-        : "✅ Bill generated successfully (not saved to Receipts)."
-    );
-
-    setCart([]);
-    setCustomerName("");
-    setMobile("");
-    setDaysToRefill("");
-    setErrors({});
-    setBillNo(nextAvailable + 1);
   };
 
-  // Auto-save bill for Online Payment
+  // Auto-save bill for Online Payment (same behavior as before)
   useEffect(() => {
     if (paymentMode === "online" && cart.length > 0) {
       const timer = setTimeout(() => saveBill(true), 5000);
       return () => clearTimeout(timer);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paymentMode, cart]);
 
+  // preserve existing UI — below is your original JSX with state hooks wired to new logic
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* ===== Left Panel ===== */}
@@ -218,10 +404,10 @@ export default function Billing() {
                     <td className="py-2 px-3 border-b">{med.name}</td>
                     <td className="py-2 px-3 border-b">{med.batch}</td>
                     <td className="py-2 px-3 border-b">
-                      {new Date(med.expiry).toLocaleDateString()}
+                      {med.expiry ? new Date(med.expiry).toLocaleDateString() : "-"}
                     </td>
                     <td className="py-2 px-3 border-b">{med.qty}</td>
-                    <td className="py-2 px-3 border-b">{med.price}</td>
+                    <td className="py-2 px-3 border-b">{Number(med.price).toFixed(2)}</td>
                     <td className="py-2 px-3 border-b text-center">
                       <button
                         onClick={() => handleAddToCart(med)}
@@ -287,7 +473,7 @@ export default function Billing() {
                         min="1"
                       />
                     </td>
-                    <td className="py-2 px-3 border-b text-right">{item.price}</td>
+                    <td className="py-2 px-3 border-b text-right">{Number(item.price).toFixed(2)}</td>
                     <td className="py-2 px-3 border-b text-right">
                       {(item.qty * item.price).toFixed(2)}
                     </td>
