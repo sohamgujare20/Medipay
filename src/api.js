@@ -81,5 +81,37 @@ export const api = {
       if (!res.ok) throw new Error("Failed to send sms");
       return res.json();
     }
+  },
+  reminders: {
+    getAll: async () => {
+      const res = await fetch(`${API_URL}/reminders`);
+      if (!res.ok) throw new Error("Failed to fetch reminders");
+      return res.json();
+    },
+    create: async (data) => {
+      const res = await fetch(`${API_URL}/reminders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+      });
+      if (!res.ok) throw new Error("Failed to create reminder");
+      return res.json();
+    },
+    update: async (id, data) => {
+      const res = await fetch(`${API_URL}/reminders/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+      });
+      if (!res.ok) throw new Error("Failed to update reminder");
+      return res.json();
+    },
+    delete: async (id) => {
+      const res = await fetch(`${API_URL}/reminders/${id}`, {
+        method: "DELETE"
+      });
+      if (!res.ok) throw new Error("Failed to delete reminder");
+      return res.json();
+    }
   }
 };

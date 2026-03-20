@@ -2,8 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Search, Trash2 } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
-import { supabase } from "../supabaseClient"; // <- ensure path is correct
-
+import { api } from "../api";
 export default function Billing() {
   const [medicines, setMedicines] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -20,12 +19,7 @@ export default function Billing() {
   // ---------- Load medicines from Supabase inventory (with localStorage fallback) ----------
   const loadMedicines = async () => {
     try {
-      const { data, error } = await supabase
-        .from("inventory")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
+      const data = await api.inventory.getAll();
 
       // normalize numeric fields
       const normalized = (data || []).map((r) => ({
@@ -37,91 +31,22 @@ export default function Billing() {
       }));
 
       setMedicines(normalized);
-      // also persist to localStorage for compatibility with older code expecting it
-      try {
-        localStorage.setItem("inventory", JSON.stringify(normalized));
-      } catch (e) {
-        // ignore storage errors
-      }
     } catch (err) {
-      console.error("Supabase inventory load failed, fallback to localStorage:", err);
-      const storedInventory = JSON.parse(localStorage.getItem("inventory") || "[]");
-      setMedicines(storedInventory);
+      console.error("Inventory load failed:", err);
     }
   };
 
   useEffect(() => {
     loadMedicines();
 
-    // subscribe to realtime inventory changes so billing updates live
-    try {
-      const channel = supabase
-        .channel("public:inventory")
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "inventory" },
-          (payload) => {
-            // payload.eventType: INSERT | UPDATE | DELETE
-            const rec = payload.new ?? payload.old;
-            setMedicines((prev) => {
-              if (payload.eventType === "INSERT") {
-                return [ { ...rec, qty: Number(rec.qty ?? 0), price: Number(rec.price ?? 0) }, ...prev ];
-              } else if (payload.eventType === "UPDATE") {
-                return prev.map((m) => (m.id === rec.id ? { ...rec, qty: Number(rec.qty ?? 0), price: Number(rec.price ?? 0) } : m));
-              } else if (payload.eventType === "DELETE") {
-                return prev.filter((m) => m.id !== rec.id);
-              }
-              return prev;
-            });
-            // also keep localStorage in sync
-            try {
-              const updated = (prev) => {
-                if (payload.eventType === "INSERT") return [rec, ...prev];
-                if (payload.eventType === "UPDATE") return prev.map((m) => (m.id === rec.id ? rec : m));
-                if (payload.eventType === "DELETE") return prev.filter((m) => m.id !== rec.id);
-                return prev;
-              };
-              // use current medicines value to build new array then store
-              setTimeout(() => {
-                try {
-                  const cur = JSON.parse(localStorage.getItem("inventory") || "[]");
-                  const newLocal = updated(cur);
-                  localStorage.setItem("inventory", JSON.stringify(newLocal));
-                } catch (e) {}
-              }, 0);
-            } catch (e) {}
-          }
-        );
-
-      channel.subscribe();
-      realtimeChannelRef.current = channel;
-    } catch (e) {
-      console.warn("Realtime subscription failed:", e);
-    }
-
-    return () => {
-      // cleanup realtime subscription
-      try {
-        if (realtimeChannelRef.current) {
-          supabase.removeChannel(realtimeChannelRef.current);
-          realtimeChannelRef.current = null;
-        }
-      } catch (e) {
-        // older supabase clients may differ; ignore cleanup errors
-      }
-    };
+    // Realtime removed - assuming single-user local flow
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---------- Load bill number (first missing positive integer) ----------
   const computeNextBillNo = async () => {
     try {
-      const { data, error } = await supabase
-        .from("bills")
-        .select("bill_no")
-        .order("bill_no", { ascending: true });
-
-      if (error) throw error;
+      const data = await api.bills.getAll();
 
       const usedNumbers = (data || []).map((r) => Number(r.bill_no)).filter(Boolean).sort((a, b) => a - b);
       const nextAvailable =
@@ -148,18 +73,6 @@ export default function Billing() {
 
   useEffect(() => {
     computeNextBillNo();
-  }, []);
-
-  // ---------- LocalStorage listener (for compatibility with other pages) ----------
-  useEffect(() => {
-    const handleStorageChange = (event) => {
-      if (event.key === "inventory") {
-        const updated = JSON.parse(event.newValue || "[]");
-        setMedicines(updated);
-      }
-    };
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
   // ---------- Filtering ----------
@@ -229,12 +142,7 @@ export default function Billing() {
 
     try {
       // compute nextAvailable again just before insert to avoid collisions
-      const { data: billsData, error: billsErr } = await supabase
-        .from("bills")
-        .select("bill_no")
-        .order("bill_no", { ascending: true });
-
-      if (billsErr) throw billsErr;
+      const billsData = await api.bills.getAll();
       const usedNumbers = (billsData || []).map((r) => Number(r.bill_no)).filter(Boolean).sort((a, b) => a - b);
       const nextAvailable =
         usedNumbers.findIndex((num, i) => num !== i + 1) === -1
@@ -262,74 +170,18 @@ export default function Billing() {
       // We'll update each item individually (you could create a function to do a single SQL txn, but Supabase JS updates per-row).
       const updatePromises = newBill.items.map(async (sold) => {
         // fetch current qty to compute new qty (to avoid race)
-        const { data: currentRows, error: fetchErr } = await supabase
-          .from("inventory")
-          .select("qty")
-          .eq("id", sold.id)
-          .limit(1)
-          .single();
-
-        if (fetchErr) {
-          // if fetch failed just try to still perform an update using GREATEST in SQL (fallback)
-          // NOTE: Supabase client doesn't let you run raw SQL easily here; so we'll attempt to update with current knowledge in local state
-          const localItem = medicines.find((m) => m.id === sold.id);
-          const curQty = localItem ? Number(localItem.qty || 0) : 0;
-          const newQtyLocal = Math.max(curQty - sold.qty, 0);
-          return supabase.from("inventory").update({ qty: newQtyLocal }).eq("id", sold.id);
-        } else {
-          const curQty = Number(currentRows.qty ?? 0);
-          const newQty = Math.max(curQty - sold.qty, 0);
-          return supabase.from("inventory").update({ qty: newQty }).eq("id", sold.id);
-        }
+        const localItem = medicines.find((m) => m.id === sold.id);
+        const curQty = localItem ? Number(localItem.qty || 0) : 0;
+        const newQtyLocal = Math.max(curQty - sold.qty, 0);
+        return api.inventory.update(sold.id, { qty: newQtyLocal });
       });
 
       await Promise.all(updatePromises);
 
       // 2) Insert bill into Supabase bills table if generateBill is true
       if (generateBill) {
-        const { data: inserted, error: insertErr } = await supabase
-          .from("bills")
-          .insert([{ ...newBill }])
-          .select()
-          .single();
+        const inserted = await api.bills.create(newBill);
 
-        if (insertErr) throw insertErr;
-
-        // mirror inserted bill into localStorage for compatibility
-        try {
-          const existingBills = JSON.parse(localStorage.getItem("bills") || "[]");
-          const localCopy = {
-            id: inserted.id,
-            billNo: inserted.bill_no,
-            date: new Date(inserted.created_at).toLocaleString(),
-            total: Number(inserted.total).toFixed(2),
-            paymentMode: inserted.payment_mode,
-            customerName: inserted.customer_name,
-            mobile: inserted.mobile,
-            daysToRefill: inserted.days_to_refill,
-            items: inserted.items,
-          };
-          localStorage.setItem("bills", JSON.stringify([localCopy, ...existingBills]));
-        } catch (e) {
-          console.warn("Failed to write bills to localStorage (non-fatal).", e);
-        }
-      } else {
-        // If not saving to Receipts, still keep local bills array for UX parity
-        try {
-          const existingBills = JSON.parse(localStorage.getItem("bills") || "[]");
-          const localCopy = {
-            id: Date.now(),
-            billNo: nextAvailable,
-            date: new Date().toLocaleString(),
-            total: Number(newBill.total).toFixed(2),
-            paymentMode: newBill.payment_mode,
-            customerName: newBill.customer_name,
-            mobile: newBill.mobile,
-            daysToRefill: newBill.days_to_refill,
-            items: newBill.items,
-          };
-          localStorage.setItem("bills", JSON.stringify([localCopy, ...existingBills]));
-        } catch (e) {}
       }
 
       alert(

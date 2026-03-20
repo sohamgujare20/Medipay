@@ -1,7 +1,6 @@
 // src/pages/Receipts.jsx
 import React, { useEffect, useState, useRef } from "react";
-import { supabase } from "../supabaseClient"; // ensure path matches your project
-
+import { api } from "../api";
 export default function Receipts() {
   const [receipts, setReceipts] = useState([]);
   const [selectedBill, setSelectedBill] = useState(null);
@@ -22,7 +21,7 @@ export default function Receipts() {
       daysToRefill: row.days_to_refill ?? null,
       items: Array.isArray(row.items) ? row.items : [],
       // runtime-only flags:
-      autoSmsSent: row.metadata?.autoSmsSent || false,
+      autoSmsSent: row.metadata?.sms_1day_before || false,
       remainingDays: undefined, // computed below
       // keep raw created_at as ISO for calculations
       __created_at: createdAt.toISOString(),
@@ -32,12 +31,7 @@ export default function Receipts() {
   // Load bills from Supabase; if fails, fallback to localStorage
   const loadBills = async () => {
     try {
-      const { data, error } = await supabase
-        .from("bills")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
+      const data = await api.bills.getAll();
 
       const normalized = (data || []).map(normalizeBill);
       // compute remainingDays & update autoSmsSent locally
@@ -52,118 +46,19 @@ export default function Receipts() {
       });
 
       setReceipts(withRemaining);
-      // keep localStorage for compatibility
-      try {
-        localStorage.setItem("bills", JSON.stringify(withRemaining));
-      } catch (e) {}
     } catch (err) {
-      console.error("Failed to load bills from Supabase, falling back to localStorage:", err);
-      const stored = JSON.parse(localStorage.getItem("bills") || "[]");
-      setReceipts(stored);
+      console.error("Failed to load bills from API:", err);
     }
   };
 
   useEffect(() => {
     loadBills();
 
-    // Realtime subscription to bills table so UI updates when new bills are added/deleted/updated
-    try {
-      const ch = supabase
-        .channel("public:bills")
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "bills" },
-          (payload) => {
-            const rec = payload.new ?? payload.old;
-            if (!rec) return;
-            const normalized = normalizeBill(rec);
-            setReceipts((prev) => {
-              if (payload.eventType === "INSERT") {
-                // compute remainingDays before inserting
-                const now = new Date();
-                if (normalized.daysToRefill) {
-                  const billDate = new Date(normalized.__created_at);
-                  const daysPassed = Math.floor((now - billDate) / (1000 * 60 * 60 * 24));
-                  normalized.remainingDays = Math.max(normalized.daysToRefill - daysPassed, 0);
-                }
-                const next = [normalized, ...prev];
-                try { localStorage.setItem("bills", JSON.stringify(next)); } catch (e) {}
-                return next;
-              }
-              if (payload.eventType === "UPDATE") {
-                const next = prev.map((p) => (p.id === normalized.id ? { ...p, ...normalized } : p));
-                try { localStorage.setItem("bills", JSON.stringify(next)); } catch (e) {}
-                return next;
-              }
-              if (payload.eventType === "DELETE") {
-                const next = prev.filter((p) => p.id !== normalized.id);
-                try { localStorage.setItem("bills", JSON.stringify(next)); } catch (e) {}
-                return next;
-              }
-              return prev;
-            });
-          }
-        )
-        .subscribe();
-
-      channelRef.current = ch;
-    } catch (e) {
-      console.warn("Realtime subscription to bills failed:", e);
-    }
-
-    return () => {
-      try {
-        if (channelRef.current) {
-          supabase.removeChannel(channelRef.current);
-          channelRef.current = null;
-        }
-      } catch (e) {}
-    };
+    // Realtime removed - assuming single-user local flow
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-check refill countdown and send automatic reminder (preserve original behavior)
-  useEffect(() => {
-    if (receipts.length === 0) return;
 
-    const now = new Date();
-    let updatedReceipts = receipts.map((bill) => {
-      // ensure we have a Date for bill creation. original code used bill.date as string - might be localized string
-      let billDate;
-      if (bill.__created_at) {
-        billDate = new Date(bill.__created_at);
-      } else {
-        // fallback: try parsing bill.date (if stored as local string)
-        billDate = bill.date ? new Date(bill.date) : new Date();
-      }
-
-      if (billDate && bill.daysToRefill) {
-        const daysPassed = Math.floor((now - billDate) / (1000 * 60 * 60 * 24));
-        const remaining = Math.max(bill.daysToRefill - daysPassed, 0);
-
-        // Auto SMS alert when refill days ≤ 1
-        if (remaining <= 1 && !bill.autoSmsSent) {
-          alert(
-            `📢 Auto Reminder for ${bill.customerName || "Customer"}:\n\nYour medicines are almost finished! Please visit MediStore soon.`
-          );
-          bill.autoSmsSent = true; // mark as sent locally
-        }
-
-        return { ...bill, remainingDays: remaining, autoSmsSent: !!bill.autoSmsSent };
-      }
-      return bill;
-    });
-
-    // persist back to localStorage and state
-    try {
-      localStorage.setItem("bills", JSON.stringify(updatedReceipts));
-    } catch (e) {
-      // ignore
-    }
-    setReceipts(updatedReceipts);
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [receipts.length]);
 
   // Delete Bill (attempt to delete from Supabase; fallback to localStorage)
   const handleDelete = async (id) => {
@@ -172,23 +67,18 @@ export default function Receipts() {
     // try to delete from Supabase if id looks like a uuid
     let deletedFromDb = false;
     try {
-      // attempt delete
-      const { error } = await supabase.from("bills").delete().eq("id", id);
-      if (!error) deletedFromDb = true;
+      await api.bills.delete(id);
+      deletedFromDb = true;
     } catch (e) {
       console.warn("Delete from Supabase failed:", e);
     }
 
-    // update local state & localStorage regardless
+    // update local state regardless
     const updatedReceipts = receipts.filter((bill) => bill.id !== id);
     setReceipts(updatedReceipts);
-    try {
-      localStorage.setItem("bills", JSON.stringify(updatedReceipts));
-    } catch (e) {}
 
     if (!deletedFromDb) {
-      // if couldn't delete from DB, warn (but we still removed locally)
-      console.warn("Receipt removed locally; could not remove from Supabase (if present).");
+      console.warn("Receipt removed locally; could not remove from database.");
     }
   };
 

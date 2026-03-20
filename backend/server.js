@@ -5,6 +5,7 @@ const cors = require('cors');
 
 const Inventory = require('./models/Inventory');
 const Bill = require('./models/Bill');
+const Reminder = require('./models/Reminder');
 
 const app = express();
 app.use(cors());
@@ -208,6 +209,46 @@ app.delete('/api/bills/:id', async (req, res) => {
   }
 });
 
+// --- Reminders Endpoints ---
+app.get('/api/reminders', async (req, res) => {
+  try {
+    const items = await Reminder.find().sort({ createdAt: -1 });
+    res.json(items);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/reminders', async (req, res) => {
+  try {
+    const newItem = new Reminder(req.body);
+    const saved = await newItem.save();
+    res.status(201).json(saved);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put('/api/reminders/:id', async (req, res) => {
+  try {
+    const updated = await Reminder.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    res.json(updated);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/reminders/:id', async (req, res) => {
+  try {
+    const del = await Reminder.findByIdAndDelete(req.params.id);
+    if (!del) return res.status(404).json({ error: "Not found" });
+    res.json(del);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Automated Reminders Cron Simulation ---
 // Runs every 1 minute to check for bills that need reminders
 setInterval(async () => {
@@ -235,12 +276,14 @@ setInterval(async () => {
       if (diffDays <= 1 && diffDays > 0 && !md.sms_1day_before) {
         console.log(`\n[AUTO-SMS] 📢 REMINDER SENT TO ${bill.mobile}: Dear ${bill.customer_name}, your refill for Bill #${bill.bill_no} is due tomorrow! We are waiting for you at MediStore.\n`);
         await Bill.findByIdAndUpdate(bill._id, { $set: { "metadata.sms_1day_before": true } });
+        await Reminder.create({ text: `Auto: ${bill.customer_name || 'Customer'} (Bill #${bill.bill_no}) refill is due tomorrow!📱`, completed: false });
       }
       
       // 1 Day After (+1 day) logic
       if (diffDays <= -1 && diffDays > -2 && !md.sms_1day_after) {
         console.log(`\n[AUTO-SMS] 📢 REMINDER SENT TO ${bill.mobile}: Dear ${bill.customer_name}, your refill for Bill #${bill.bill_no} was due yesterday. Please visit MediStore soon!\n`);
         await Bill.findByIdAndUpdate(bill._id, { $set: { "metadata.sms_1day_after": true } });
+        await Reminder.create({ text: `Auto: ${bill.customer_name || 'Customer'} (Bill #${bill.bill_no}) refill was due yesterday! Follow up.📞`, completed: false });
       }
     }
   } catch(err) {

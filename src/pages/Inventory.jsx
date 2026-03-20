@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { Plus, X, Trash2, Edit3, Save } from "lucide-react";
-import { supabase } from "../supabaseClient"; // adjust path if needed
+import { api } from "../api";
 
 // Helpers
 const toDate = (value) => {
@@ -76,12 +76,7 @@ export default function Inventory() {
       setLoading(true);
       setErrorMsg("");
       try {
-        const { data, error } = await supabase
-          .from("inventory")
-          .select("*")
-          .order("created_at", { ascending: false });
-
-        if (error) throw error;
+        const data = await api.inventory.getAll();
 
         const normalized = (data || []).map((r) => ({
           ...r,
@@ -158,13 +153,7 @@ export default function Inventory() {
         expiry: newMed.expiry,
       };
 
-      const { data, error } = await supabase
-        .from("inventory")
-        .insert([payload])
-        .select()
-        .single();
-
-      if (error) throw error;
+      const data = await api.inventory.create(payload);
       const newItem = {
         ...data,
         qty: Number(data.qty ?? 0),
@@ -185,8 +174,7 @@ export default function Inventory() {
       return;
     }
     try {
-      const { error } = await supabase.from("inventory").delete().eq("id", id);
-      if (error) throw error;
+      await api.inventory.delete(id);
       setInventory((prev) => prev.filter((item) => item.id !== id));
     } catch (err) {
       console.error("Failed to delete medicine:", err);
@@ -217,14 +205,7 @@ export default function Inventory() {
         expiry: editData.expiry || null,
       };
 
-      const { data, error } = await supabase
-        .from("inventory")
-        .update(payload)
-        .eq("id", id)
-        .select()
-        .single();
-
-      if (error) throw error;
+      const data = await api.inventory.update(id, payload);
 
       const updatedItem = {
         ...data,
