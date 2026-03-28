@@ -1,215 +1,211 @@
 // src/pages/Receipts.jsx
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { 
+  FileText, Search, Trash2, Eye, 
+  CreditCard, Smartphone, Calendar, 
+  TrendingUp, Activity, Inbox
+} from "lucide-react";
 import { api } from "../api";
-export default function Receipts() {
-  const [receipts, setReceipts] = useState([]);
-  const [selectedBill, setSelectedBill] = useState(null);
-  const channelRef = useRef(null);
 
-  // Helper: normalize a DB bill row into the shape your UI expects
+export default function Receipts() {
+  const navigate = useNavigate();
+  const [receipts, setReceipts] = useState([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  // Stats calculation
+  const stats = {
+    totalRevenue: receipts.reduce((sum, r) => sum + Number(r.total), 0).toFixed(2),
+    totalBills: receipts.length,
+    todayCount: receipts.filter(r => new Date(r.createdAt || r.created_at).toLocaleDateString() === new Date().toLocaleDateString()).length
+  };
+
   const normalizeBill = (row) => {
     if (!row) return null;
-    const createdAt = row.created_at ? new Date(row.created_at) : new Date();
+    const createdAt = row.createdAt || row.created_at || new Date();
     return {
-      id: row.id,
+      id: row._id || row.id,
       billNo: row.bill_no,
-      date: createdAt.toLocaleString(),
+      date: new Date(createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
       total: Number(row.total).toFixed(2),
-      paymentMode: row.payment_mode || "—",
-      customerName: row.customer_name || "—",
+      paymentMode: row.payment_mode || "online",
+      customerName: row.customer_name || "Guest Customer",
       mobile: row.mobile || "—",
       daysToRefill: row.days_to_refill ?? null,
-      items: Array.isArray(row.items) ? row.items : [],
-      // runtime-only flags:
-      autoSmsSent: row.metadata?.sms_1day_before || false,
-      remainingDays: undefined, // computed below
-      // keep raw created_at as ISO for calculations
-      __created_at: createdAt.toISOString(),
+      createdAt: createdAt,
+      metadata: row.metadata || {}
     };
   };
 
-  // Load bills from Supabase; if fails, fallback to localStorage
   const loadBills = async () => {
+    setLoading(true);
     try {
       const data = await api.bills.getAll();
-
-      const normalized = (data || []).map(normalizeBill);
-      // compute remainingDays & update autoSmsSent locally
-      const now = new Date();
-      const withRemaining = normalized.map((b) => {
-        const billDate = new Date(b.__created_at);
-        if (b.daysToRefill) {
-          const daysPassed = Math.floor((now - billDate) / (1000 * 60 * 60 * 24));
-          b.remainingDays = Math.max(b.daysToRefill - daysPassed, 0);
-        }
-        return b;
-      });
-
-      setReceipts(withRemaining);
+      const normalized = (data || []).map(normalizeBill).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+      setReceipts(normalized);
     } catch (err) {
-      console.error("Failed to load bills from API:", err);
+      console.error("Failed to load receipts:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     loadBills();
-
-    // Realtime removed - assuming single-user local flow
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-
-
-  // Delete Bill (attempt to delete from Supabase; fallback to localStorage)
   const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this receipt?")) return;
-
-    // try to delete from Supabase if id looks like a uuid
-    let deletedFromDb = false;
+    if (!window.confirm("Permanently delete this receipt? This action cannot be undone.")) return;
     try {
       await api.bills.delete(id);
-      deletedFromDb = true;
+      setReceipts(prev => prev.filter(r => r.id !== id));
     } catch (e) {
-      console.warn("Delete from Supabase failed:", e);
-    }
-
-    // update local state regardless
-    const updatedReceipts = receipts.filter((bill) => bill.id !== id);
-    setReceipts(updatedReceipts);
-
-    if (!deletedFromDb) {
-      console.warn("Receipt removed locally; could not remove from database.");
+      console.error("Delete failed:", e);
     }
   };
 
-  return (
-    <div className="p-6">
-      <h1 className="text-2xl font-semibold mb-6 text-[var(--hp-primary)]">
-        Receipts & Auto Refill Reminders
-      </h1>
+  const filteredReceipts = receipts.filter(r => 
+    r.customerName.toLowerCase().includes(search.toLowerCase()) ||
+    r.mobile.includes(search) ||
+    String(r.billNo).includes(search)
+  );
 
-      {receipts.length === 0 ? (
-        <p className="text-gray-500 text-center">No saved bills yet.</p>
-      ) : (
-        <div className="overflow-auto rounded-lg border bg-white">
-          <table className="min-w-full table-auto">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="px-4 py-3 text-left">Customer Name</th>
-                <th className="px-4 py-3 text-left">Mobile</th>
-                <th className="px-4 py-3 text-left">Bill No</th>
-                <th className="px-4 py-3 text-left">Date</th>
-                <th className="px-4 py-3 text-left">Payment</th>
-                <th className="px-4 py-3 text-center">Days to Refill</th>
-                <th className="px-4 py-3 text-center">Reminder Status</th>
-                <th className="px-4 py-3 text-right">Total</th>
-                <th className="px-4 py-3 text-center">Actions</th>
+  return (
+    <div className="animate-in fade-in duration-700 max-w-7xl mx-auto px-4 pb-20">
+      
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10 mt-6">
+        <div>
+          <h1 className="text-4xl font-black text-gray-900 tracking-tight">
+            Receipt <span className="text-[var(--hp-primary)]">History</span>
+          </h1>
+          <p className="text-gray-500 mt-2 font-medium">Transaction logs and billing record management</p>
+        </div>
+        <div className="flex items-center gap-3">
+           <button onClick={loadBills} className="p-3 bg-white border rounded-xl hover:bg-gray-50 transition shadow-sm text-gray-600">
+            <Activity size={20} className={loading ? "animate-spin" : ""} />
+          </button>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-10">
+        <div className="p-6 bg-white rounded-3xl border border-gray-100 shadow-sm">
+          <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total Revenue</p>
+          <div className="flex items-center justify-between">
+            <h3 className="text-2xl font-black text-gray-900">₹{stats.totalRevenue}</h3>
+            <div className="p-2 bg-teal-50 text-teal-600 rounded-lg"><TrendingUp size={20} /></div>
+          </div>
+        </div>
+        <div className="p-6 bg-white rounded-3xl border border-gray-100 shadow-sm">
+          <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total Bills</p>
+          <div className="flex items-center justify-between">
+            <h3 className="text-2xl font-black text-gray-900">{stats.totalBills} Transactions</h3>
+            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><FileText size={20} /></div>
+          </div>
+        </div>
+        <div className="p-6 bg-white rounded-3xl border border-gray-100 shadow-sm">
+          <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Today's Volume</p>
+          <div className="flex items-center justify-between">
+            <h3 className="text-2xl font-black text-gray-900">{stats.todayCount} Receipts</h3>
+            <div className="p-2 bg-purple-50 text-purple-600 rounded-lg"><Calendar size={20} /></div>
+          </div>
+        </div>
+      </div>
+
+      {/* Search Bar */}
+      <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm mb-8">
+        <div className="relative group">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[var(--hp-primary)] transition-colors" size={20} />
+          <input
+            type="text"
+            placeholder="Search by Customer, Mobile or Bill Number..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border-transparent border focus:border-[var(--hp-primary)] focus:bg-white rounded-2xl focus:outline-none focus:ring-4 focus:ring-teal-500/10 font-medium transition-all"
+          />
+        </div>
+      </div>
+
+      {/* Receipts Table */}
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50/50 border-b border-gray-100">
+                <th className="px-6 py-5 text-sm font-black text-gray-500 uppercase tracking-widest">Customer Details</th>
+                <th className="px-6 py-5 text-sm font-black text-gray-500 uppercase tracking-widest">Bill No</th>
+                <th className="px-6 py-5 text-sm font-black text-gray-500 uppercase tracking-widest">Date & Time</th>
+                <th className="px-6 py-5 text-sm font-black text-gray-500 uppercase tracking-widest text-center">Payment</th>
+                <th className="px-6 py-5 text-sm font-black text-gray-500 uppercase tracking-widest text-right">Amount</th>
+                <th className="px-6 py-5 text-sm font-black text-gray-500 uppercase tracking-widest text-right">Actions</th>
               </tr>
             </thead>
-            <tbody>
-              {receipts.map((bill) => (
-                <tr key={bill.id} className="border-b hover:bg-gray-50">
-                  <td className="px-4 py-2 font-medium text-gray-800">
-                    {bill.customerName || "—"}
-                  </td>
-                  <td className="px-4 py-2">{bill.mobile || "—"}</td>
-                  <td className="px-4 py-2">#{bill.billNo}</td>
-                  <td className="px-4 py-2">{bill.date}</td>
-                  <td className="px-4 py-2 capitalize">{bill.paymentMode}</td>
-
-                  {/* Days to Refill Countdown */}
-                  <td className="px-4 py-2 text-center">
-                    {bill.remainingDays !== undefined
-                      ? bill.remainingDays === 0
-                        ? "Refill Due!"
-                        : `${bill.remainingDays} days`
-                      : bill.daysToRefill || "—"}
-                  </td>
-
-                  {/* Auto Reminder Status */}
-                  <td className="px-4 py-2 text-center">
-                    {bill.autoSmsSent ? (
-                      <span className="text-green-600 font-medium">Sent ✅</span>
-                    ) : bill.remainingDays !== undefined && bill.remainingDays <= 1 ? (
-                      <span className="text-orange-600 font-medium">Sending...</span>
-                    ) : (
-                      <span className="text-gray-500">Pending</span>
-                    )}
-                  </td>
-
-                  <td className="px-4 py-2 text-right font-semibold text-[var(--hp-primary)]">
-                    ₹{bill.total}
-                  </td>
-
-                  {/* View / Delete */}
-                  <td className="px-4 py-2 text-center space-x-2">
-                    <button
-                      className="text-white bg-[var(--hp-primary)] px-3 py-1 rounded hover:bg-teal-700"
-                      onClick={() => setSelectedBill(bill)}
-                    >
-                      View
-                    </button>
-                    <button
-                      className="text-white bg-red-600 px-3 py-1 rounded hover:bg-red-700"
-                      onClick={() => handleDelete(bill.id)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
+            <tbody className="divide-y divide-gray-50">
+              {loading ? (
+                <tr><td colSpan={6} className="py-20 text-center text-gray-400 font-bold animate-pulse uppercase tracking-[.2em]">Retrieving Records...</td></tr>
+              ) : filteredReceipts.length === 0 ? (
+                <tr><td colSpan={6} className="py-20 text-center">
+                  <Inbox size={48} className="mx-auto text-gray-200 mb-4" />
+                  <p className="text-gray-400 font-bold uppercase tracking-widest">No matching receipts</p>
+                </td></tr>
+              ) : (
+                filteredReceipts.map((bill) => (
+                  <tr key={bill.id} className="group hover:bg-teal-50/30 transition-colors">
+                    <td className="px-6 py-5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gray-100 text-gray-500 rounded-full flex items-center justify-center font-bold">
+                          {bill.customerName.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="font-bold text-gray-900 leading-tight">{bill.customerName}</p>
+                          <p className="text-xs font-medium text-gray-400 flex items-center gap-1 mt-1">
+                            <Smartphone size={10} /> {bill.mobile}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-5 font-black text-gray-400">#{bill.billNo}</td>
+                    <td className="px-6 py-5 text-sm font-bold text-gray-600">{bill.date}</td>
+                    <td className="px-6 py-5 text-center">
+                      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+                        bill.paymentMode === 'online' 
+                        ? 'bg-blue-50 text-blue-600 border-blue-100' 
+                        : 'bg-gray-100 text-gray-600 border-gray-200'
+                      }`}>
+                        {bill.paymentMode}
+                      </span>
+                    </td>
+                    <td className="px-6 py-5 text-right">
+                      <p className="font-black text-lg text-[var(--hp-primary)] tracking-tight">₹{bill.total}</p>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="flex justify-end items-center gap-2">
+                        <button 
+                          onClick={() => navigate(`/receipts/${bill.id}`)}
+                          className="p-2 text-gray-400 hover:text-[var(--hp-primary)] hover:bg-teal-50 rounded-xl transition cursor-pointer"
+                          title="View Details"
+                        >
+                          <Eye size={18} />
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(bill.id)}
+                          className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition cursor-pointer"
+                          title="Delete Record"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
-      )}
+      </div>
 
-      {/* Bill Details Modal */}
-      {selectedBill && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-lg w-full shadow-lg relative">
-            <button
-              className="absolute top-3 right-3 text-gray-700 text-lg"
-              onClick={() => setSelectedBill(null)}
-            >
-              ✖
-            </button>
-
-            <h2 className="text-xl font-semibold text-[var(--hp-primary)] mb-3">
-              Receipt Details
-            </h2>
-
-            <p><b>Customer Name:</b> {selectedBill.customerName || "—"}</p>
-            <p><b>Mobile:</b> {selectedBill.mobile || "—"}</p>
-            <p><b>Bill No:</b> #{selectedBill.billNo}</p>
-            <p><b>Date:</b> {selectedBill.date}</p>
-            <p><b>Payment:</b> {selectedBill.paymentMode}</p>
-            <p><b>Total:</b> ₹{selectedBill.total}</p>
-            <p>
-              <b>Days to Refill:</b>{" "}
-              {selectedBill.remainingDays !== undefined
-                ? selectedBill.remainingDays
-                : selectedBill.daysToRefill || "—"}
-            </p>
-
-            <h3 className="font-semibold mt-4 mb-2">Items:</h3>
-            <ul className="space-y-2 max-h-40 overflow-auto">
-              {selectedBill.items.map((i, index) => (
-                <li key={index} className="border p-2 rounded bg-gray-50">
-                  {i.name} — {i.qty} × ₹{i.price} ={" "}
-                  <b>₹{(i.qty * i.price).toFixed(2)}</b>
-                </li>
-              ))}
-            </ul>
-
-            <button
-              onClick={() => setSelectedBill(null)}
-              className="mt-4 w-full bg-[var(--hp-primary)] text-white py-2 rounded-lg hover:bg-teal-700"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

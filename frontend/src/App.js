@@ -10,6 +10,8 @@ import Inventory from "./pages/Inventory";
 import Analytics from "./pages/Analytics";
 import OCR from "./pages/OCR";
 import Settings from "./pages/Settings";
+import Notification from "./pages/Notification";
+import ReceiptDetail from "./pages/ReceiptDetail";
 import Logout from "./pages/Logout";
 
 export default function App() {
@@ -48,15 +50,13 @@ export default function App() {
         Route path = "/ocr"
         element = { < OCR / > }
         /> <
-        Route path = "/settings"
-        element = { < Settings / > }
-        /> <
-        Route path = "/logout"
-        element = { < Logout / > }
-        /> <
-        /Routes> <
-        /main> <
-        /div> <
-        /div>
+        Route path = "/settings" element = { < Settings / > } /> 
+        <Route path = "/notification" element = { < Notification / > } /> 
+        <Route path = "/receipts/:id" element = { < ReceiptDetail / > } /> 
+        <Route path = "/logout" element = { < Logout / > } /> 
+        </Routes> 
+        </main> 
+        </div> 
+        </div>
     );
 }

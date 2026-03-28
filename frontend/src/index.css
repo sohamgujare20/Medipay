@@ -95,3 +95,48 @@ button:hover {
     transition: transform 0.2s ease-in-out;
     transform: scale(1.03);
 }
+
+/* 8. 🖨️ Printing Styles - Ensure ONLY receipts print */
+
+@media print {
+    /* Hide ALL UI elements by default */
+    aside, navbar, nav, header, footer,
+    .no-print, 
+    button, 
+    .sidebar, 
+    .navbar,
+    .no-print-backdrop {
+        display: none !important;
+    }
+
+    /* SPECIFIC FIX: If we want to show the modal but not the backdrop, 
+       we need to hide the backdrop background but KEEP the container */
+    .no-print-backdrop {
+        display: flex !important;
+        background: transparent !important;
+        position: static !important;
+        padding: 0 !important;
+    }
+
+    /* Ensure the printable area is visible and properly formatted */
+    .printable-receipt {
+        display: block !important;
+        visibility: visible !important;
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important; /* Let the internal spacing handle it */
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    /* Ensure text is black for clarity */
+    * {
+        color: black !important;
+        text-shadow: none !important;
+        background: transparent !important;
+        box-shadow: none !important;
+    }
+}

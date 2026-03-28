@@ -9,6 +9,7 @@ import {
   Camera,
   Settings,
   LogOut,
+  Bell,
   Menu
 } from "lucide-react";
 
@@ -16,6 +17,7 @@ const menuItems = [
   { name: "Home", path: "/", icon: Home },
   { name: "Billing", path: "/billing", icon: ShoppingCart },
   { name: "Receipts", path: "/receipts", icon: FileText },
+  { name: "Notification", path: "/notification", icon: Bell },
   { name: "Inventory", path: "/inventory", icon: Box },
   { name: "Analytics", path: "/analytics", icon: BarChart2 },
   { name: "Prescription OCR", path: "/ocr", icon: Camera },

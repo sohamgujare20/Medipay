@@ -1,6 +1,6 @@
 // src/pages/Billing.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { Search, Trash2, Plus, Minus, User, Phone, Clock, ShoppingCart } from "lucide-react";
+import { Search, Trash2, Plus, Minus, User, Phone, Clock, ShoppingCart, X, FileText } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { api } from "../api";
 export default function Billing() {
@@ -89,22 +89,20 @@ export default function Billing() {
     setCart((prev) => {
       const existing = prev.find((item) => item.id === med.id);
       if (existing) {
-        return prev.map((item) => (item.id === med.id ? { ...item, qty: item.qty + 1 } : item));
+        return prev.map((item) => (item.id === med.id ? { ...item, cartQty: item.cartQty + 1 } : item));
       }
-      return [...prev, { ...med, qty: 1 }];
+      return [...prev, { ...med, cartQty: 1, availableQty: Number(med.qty) }];
     });
   };
 
-  const handleQtyChange = (id, qty) => {
+  const handleQtyChange = (id, newQty) => {
     setCart((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, qty: Math.max(1, qty) } : item))
+      prev.map((item) => (item.id === id ? { ...item, cartQty: Math.max(1, newQty) } : item))
     );
   };
 
-  const handlePriceChange = (id, price) => {
-    setCart((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, price: Math.max(0, price) } : item))
-    );
+  const handlePrint = () => {
+    window.print();
   };
 
   const handleRemove = (id) => {
@@ -112,7 +110,7 @@ export default function Billing() {
   };
 
   // ---------- Totals ----------
-  const subtotal = cart.reduce((acc, item) => acc + Number(item.price || 0) * Number(item.qty || 0), 0);
+  const subtotal = cart.reduce((acc, item) => acc + Number(item.price || 0) * Number(item.cartQty || 0), 0);
   const tax = subtotal * 0.05;
   const grandTotal = subtotal + tax;
 
@@ -171,7 +169,7 @@ export default function Billing() {
           id: c.id,
           name: c.name,
           batch: c.batch,
-          qty: Number(c.qty),
+          qty: Number(c.cartQty),
           price: Number(c.price),
         })),
       };
@@ -300,6 +298,7 @@ export default function Billing() {
                 <thead className="bg-gray-50/70">
                   <tr>
                     <th className="text-left py-3 px-3 border-b border-gray-200 text-gray-500 font-bold text-xs uppercase tracking-wider">Medicine</th>
+                    <th className="text-center py-3 px-3 border-b border-gray-200 text-gray-500 font-bold text-xs uppercase tracking-wider">Available</th>
                     <th className="text-center py-3 px-3 border-b border-gray-200 text-gray-500 font-bold text-xs uppercase tracking-wider">Qty</th>
                     <th className="text-right py-3 px-3 border-b border-gray-200 text-gray-500 font-bold text-xs uppercase tracking-wider">Price (₹)</th>
                     <th className="text-right py-3 px-3 border-b border-gray-200 text-gray-500 font-bold text-xs uppercase tracking-wider">Total (₹)</th>
@@ -311,36 +310,32 @@ export default function Billing() {
                     <tr key={item.id} className="hover:bg-gray-50/80 transition border-b border-dashed border-gray-200">
                       <td className="py-4 px-3 font-semibold text-gray-800 ext-base">{item.name}</td>
                       <td className="py-4 px-3 text-center">
+                        <span className={`font-bold px-3 py-1 rounded-lg text-sm ${item.availableQty > 10 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                          {item.availableQty}
+                        </span>
+                      </td>
+                      <td className="py-4 px-3 text-center">
                         <div className="flex items-center justify-center gap-2">
                           <button
-                            onClick={() => handleQtyChange(item.id, item.qty - 1)}
+                            onClick={() => handleQtyChange(item.id, item.cartQty - 1)}
                             className="p-1.5 bg-gray-100 text-gray-600 rounded-lg hover:bg-red-100 hover:text-red-600 transition shadow-sm"
                           >
                             <Minus size={16} strokeWidth={3} />
                           </button>
-                          <span className="w-8 font-extrabold text-center text-gray-800 text-lg">{item.qty}</span>
+                          <span className="w-8 font-extrabold text-center text-gray-800 text-lg">{item.cartQty}</span>
                           <button
-                            onClick={() => handleQtyChange(item.id, item.qty + 1)}
+                            onClick={() => handleQtyChange(item.id, item.cartQty + 1)}
                             className="p-1.5 bg-gray-100 text-gray-600 rounded-lg hover:bg-green-100 hover:text-green-600 transition shadow-sm"
                           >
                             <Plus size={16} strokeWidth={3} />
                           </button>
                         </div>
                       </td>
-                      <td className="py-4 px-3 text-right">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={item.price}
-                          onChange={(e) =>
-                            handlePriceChange(item.id, Number(e.target.value))
-                          }
-                          className="w-[90px] border border-gray-300 rounded-lg px-2 py-2 text-right font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--hp-primary)] text-gray-700 shadow-inner"
-                          min="0"
-                        />
+                      <td className="py-4 px-3 text-right font-semibold text-gray-700">
+                        ₹ {Number(item.price).toFixed(2)}
                       </td>
                       <td className="py-4 px-3 text-right font-black text-xl text-[var(--hp-primary)]">
-                        {(item.qty * item.price).toFixed(2)}
+                        {(item.cartQty * item.price).toFixed(2)}
                       </td>
                       <td className="py-4 px-3 text-center">
                         <button
@@ -545,8 +540,14 @@ export default function Billing() {
 
       {/* Bill Print Modal */}
       {printBillData && (
-        <div className="fixed inset-0 bg-black/60 flex flex-col items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 relative">
+        <div className="fixed inset-0 bg-black/60 flex flex-col items-center justify-center z-50 p-4 no-print-backdrop">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 relative printable-receipt">
+            <button
+              onClick={() => setPrintBillData(null)}
+              className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 no-print"
+            >
+              <X size={20} />
+            </button>
             <div className="text-center mb-4 border-b pb-4">
               <h2 className="text-2xl font-bold text-[var(--hp-primary)]">MediPay</h2>
               <p className="text-xs text-gray-500 mt-1">Pharmacy Receipt</p>
@@ -605,16 +606,11 @@ export default function Billing() {
 
           <div className="flex gap-4 mt-6">
             <button
-              onClick={() => window.print()}
-              className="px-6 py-2 bg-white text-gray-800 font-medium rounded shadow-lg hover:bg-gray-100 transition"
+              onClick={handlePrint}
+              className="mt-6 w-full py-3 bg-[var(--hp-primary)] text-white font-bold rounded-xl hover:bg-teal-700 transition flex items-center justify-center gap-2 no-print"
             >
-              Print Receipt
-            </button>
-            <button
-              onClick={() => setPrintBillData(null)}
-              className="px-6 py-2 bg-[var(--hp-primary)] text-white font-medium rounded shadow-lg hover:bg-teal-700 transition"
-            >
-              Done / Close
+              <FileText size={20} />
+              Confirm & Print Receipt
             </button>
           </div>
         </div>
