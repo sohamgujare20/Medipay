@@ -1,6 +1,6 @@
 // src/pages/Inventory.jsx
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Plus, X, Trash2, Edit3, Save } from "lucide-react";
 import { api } from "../api";
 
@@ -67,6 +67,7 @@ export default function Inventory() {
   const [errorMsg, setErrorMsg] = useState("");
 
   const location = useLocation();
+  const navigate = useNavigate();
   const isMounted = useRef(false);
 
   // Load inventory
@@ -80,6 +81,7 @@ export default function Inventory() {
 
         const normalized = (data || []).map((r) => ({
           ...r,
+          id: r._id || r.id || crypto.randomUUID(),
           qty: Number(r.qty ?? 0),
           price: Number(r.price ?? 0),
         }));
@@ -182,6 +184,27 @@ export default function Inventory() {
     }
   }
 
+  // Delete all expired
+  async function deleteExpiredMedicines() {
+    if (!window.confirm(`Are you sure you want to drop ALL ${expiredCount} expired batches from the database? This cannot be undone.`)) return;
+    
+    // Double confirmation lock
+    const safetyCheck = window.prompt(`[DOUBLE CONFIRMATION]\nThis will permanently delete ${expiredCount} expired items.\nType "DELETE" to confirm:`);
+    if (safetyCheck !== "DELETE") {
+      alert("Removal cancelled. Expired stock was kept safe.");
+      return;
+    }
+
+    try {
+      const res = await api.inventory.deleteExpired();
+      alert(`Cleaned up ${res.deletedCount} totally expired medicines safely!`);
+      const data = await api.inventory.getAll();
+      setInventory(data.map((r) => ({ ...r, qty: Number(r.qty ?? 0), price: Number(r.price ?? 0) })));
+    } catch (err) {
+      alert("Error sweeping expired medicines.");
+    }
+  }
+
   // Start edit (format expiry as yyyy-mm-dd for date input)
   function startEdit(item) {
     const expiryDate = toDate(item.expiry);
@@ -240,15 +263,24 @@ export default function Inventory() {
       )}
 
       <div className="flex flex-wrap gap-3 mb-4">
-        <div className="px-4 py-2 rounded-lg bg-red-100 text-red-700 font-medium">
-          Expired: {expiredCount}
-        </div>
-        <div className="px-4 py-2 rounded-lg bg-orange-100 text-orange-700 font-medium">
-          Low Stock: {lowStockCount}
-        </div>
-        <div className="px-4 py-2 rounded-lg bg-green-100 text-green-700 font-medium">
-          Total Items: {inventory.length}
-        </div>
+        <button 
+          onClick={() => navigate("?filter=expired")}
+          className="px-4 py-2 rounded-lg bg-red-100 text-red-700 font-medium hover:bg-red-200 transition cursor-pointer"
+        >
+          Show Expired: {expiredCount}
+        </button>
+        <button 
+          onClick={() => navigate("?filter=lowstock")}
+          className="px-4 py-2 rounded-lg bg-orange-100 text-orange-700 font-medium hover:bg-orange-200 transition cursor-pointer"
+        >
+          Show Low Stock: {lowStockCount}
+        </button>
+        <button 
+          onClick={() => navigate("/inventory")}
+          className="px-4 py-2 rounded-lg bg-green-100 text-green-700 font-medium hover:bg-green-200 transition cursor-pointer"
+        >
+          Show All: {inventory.length}
+        </button>
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
@@ -259,12 +291,23 @@ export default function Inventory() {
           onChange={(e) => setSearch(e.target.value)}
           className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--hp-primary)]"
         />
-        <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-[var(--hp-primary)] text-white rounded-lg hover:bg-teal-700"
-        >
-          <Plus size={16} /> Add Medicine
-        </button>
+        <div className="flex gap-2">
+          {expiredCount > 0 && (
+            <button
+              onClick={deleteExpiredMedicines}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition"
+              title="Permanently remove all expired medicines from DB"
+            >
+              <Trash2 size={14} /> Remove Expired ({expiredCount})
+            </button>
+          )}
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--hp-primary)] text-white rounded-lg hover:bg-teal-700 transition"
+          >
+            <Plus size={16} /> Add Medicine
+          </button>
+        </div>
       </div>
 
       <div className="bg-[var(--hp-surface)] border rounded-lg overflow-auto">
