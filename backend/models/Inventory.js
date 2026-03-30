@@ -2,7 +2,10 @@ const mongoose = require('mongoose');
 
 const inventorySchema = new mongoose.Schema({
   name: { type: String, required: true },
+  category: { type: String, required: true },
   batch: { type: String, required: true },
+  companyName: { type: String }, // e.g. "Cipla", "Abbott"
+  size: { type: String },        // e.g. "10 Tablets", "100ml"
   price: { type: Number, required: true },
   qty: { type: Number, required: true },
   expiry: { type: Date }

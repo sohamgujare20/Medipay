@@ -1,13 +1,15 @@
 const mongoose = require('mongoose');
 
-const reminderSchema = new mongoose.Schema({
+const notificationSchema = new mongoose.Schema({
   text: { type: String, required: true },
+  message: { type: String }, // Store the actual SMS/WhatsApp content
+  type: { type: String, enum: ['system', 'message'], default: 'system' },
   completed: { type: Boolean, default: false },
   dueDate: { type: Date }
 }, { timestamps: true });
 
 // Transform output to match Supabase response format (_id -> id)
-reminderSchema.set('toJSON', {
+notificationSchema.set('toJSON', {
   virtuals: true,
   versionKey: false,
   transform: (doc, ret) => {
@@ -16,4 +18,4 @@ reminderSchema.set('toJSON', {
   }
 });
 
-module.exports = mongoose.model('Reminder', reminderSchema);
+module.exports = mongoose.model('Notification', notificationSchema);

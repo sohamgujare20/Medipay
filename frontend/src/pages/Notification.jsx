@@ -1,10 +1,11 @@
 // src/pages/Notification.jsx
 import React, { useEffect, useState } from "react";
 import { api } from "../api";
-import { Bell, User, Phone, Calendar, CheckCircle, AlertCircle, Clock, Send } from "lucide-react";
+import { Bell, User, Phone, Calendar, CheckCircle, AlertCircle, Clock, Send, Trash2, Info } from "lucide-react";
 
 export default function Notification() {
   const [bills, setBills] = useState([]);
+  const [systemAlerts, setSystemAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const normalizeBill = (row) => {
@@ -30,13 +31,17 @@ export default function Notification() {
     };
   };
 
-  const loadNotifications = async () => {
+  const loadData = async () => {
     setLoading(true);
     try {
-      const data = await api.bills.getAll();
+      const [billsData, alertsData] = await Promise.all([
+        api.bills.getAll(),
+        api.notifications.getAll()
+      ]);
+
       const now = new Date();
       
-      const needsReminder = (data || [])
+      const needsReminder = (billsData || [])
         .map(normalizeBill)
         .filter((b) => b.daysToRefill)
         .map((b) => {
@@ -48,6 +53,7 @@ export default function Notification() {
         .sort((a, b) => a.remainingDays - b.remainingDays);
 
       setBills(needsReminder);
+      setSystemAlerts(alertsData || []);
     } catch (err) {
       console.error("Failed to load notifications:", err);
     } finally {
@@ -56,11 +62,10 @@ export default function Notification() {
   };
 
   useEffect(() => {
-    loadNotifications();
+    loadData();
   }, []);
 
   const sendManualReminder = async (bill) => {
-    // Simulate sending SMS
     alert(`📢 Manual Reminder sent to ${bill.customerName}:\n\n"Dear ${bill.customerName}, your medicines are almost finished! Please visit MediStore soon."`);
     
     const newMetadata = {
@@ -83,119 +88,157 @@ export default function Notification() {
     }
   };
 
+  const deleteAlert = async (id) => {
+    if(!window.confirm("Delete this alert?")) return;
+    try {
+      await api.notifications.delete(id);
+      setSystemAlerts(prev => prev.filter(a => a.id !== id));
+    } catch (err) {
+      console.error("Delete failed", err);
+    }
+  };
+
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
+    <div className="p-6 max-w-6xl mx-auto animate-in fade-in duration-700">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
         <div>
-          <h1 className="text-3xl font-black text-gray-800 flex items-center gap-3">
-            <div className="bg-red-50 p-2 rounded-xl text-red-500">
+          <h1 className="text-4xl font-black text-gray-900 flex items-center gap-4">
+            <div className="bg-red-50 p-3 rounded-2xl text-red-500 shadow-sm">
               <Bell size={32} />
             </div>
-            Notification Center
+            Notification <span className="text-[var(--hp-primary)]">Hub</span>
           </h1>
-          <p className="text-gray-500 mt-2 font-medium">Manage medicine refill reminders and customer follow-ups</p>
+          <p className="text-gray-500 mt-2 font-medium flex items-center gap-2">
+            <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+            Manage medicine refill reminders and system-generated alerts
+          </p>
         </div>
         <button 
-          onClick={loadNotifications}
-          className="px-4 py-2 border rounded-lg hover:bg-gray-50 transition font-bold text-gray-600 shadow-sm"
+          onClick={loadData}
+          className="px-6 py-3 bg-white border border-gray-100 rounded-2xl hover:bg-gray-50 transition font-black text-gray-600 shadow-sm flex items-center gap-2"
         >
-          Refresh List
+          <Clock size={18} /> Refresh Activity
         </button>
       </div>
 
-      {loading ? (
-        <div className="text-center py-20 text-gray-400 font-bold">Checking for pending reminders...</div>
-      ) : bills.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-dashed p-20 text-center shadow-sm">
-          <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-6">
-            <CheckCircle size={40} className="text-gray-300" />
-          </div>
-          <p className="text-2xl font-bold text-gray-300 uppercase tracking-widest">No Notifications</p>
-          <p className="text-gray-400 mt-2">All customers are up to date with their refills.</p>
-        </div>
-      ) : (
-        <div className="grid gap-6">
-          {bills.map((bill) => (
-            <div key={bill.id} className={`bg-white rounded-2xl border shadow-sm transition-all hover:shadow-md overflow-hidden ${bill.remainingDays <= 0 ? 'border-red-200' : 'border-gray-100'}`}>
-              <div className="grid grid-cols-1 md:grid-cols-4 items-center">
-                
-                {/* Status Column */}
-                <div className={`p-6 flex flex-col items-center justify-center text-center border-b md:border-b-0 md:border-r ${bill.remainingDays <= 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
-                  {bill.remainingDays === 0 ? (
-                    <>
-                      <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center text-red-600 mb-2">
-                        <AlertCircle size={24} />
-                      </div>
-                      <p className="font-black text-red-600 uppercase tracking-tighter">Due Today!</p>
-                    </>
-                  ) : bill.remainingDays < 0 ? (
-                    <>
-                      <div className="w-12 h-12 bg-red-800 rounded-full flex items-center justify-center text-white mb-2">
-                        <AlertCircle size={24} />
-                      </div>
-                      <p className="font-black text-red-800 uppercase tracking-tighter">Past Due</p>
-                      <p className="text-xs text-red-700 font-bold mt-1">{Math.abs(bill.remainingDays)} day(s) ago</p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center text-yellow-600 mb-2">
-                        <Clock size={24} />
-                      </div>
-                      <p className="font-black text-yellow-600 uppercase tracking-tighter">Upcoming</p>
-                      <p className="text-xs text-yellow-700 font-bold mt-1">in {bill.remainingDays} days</p>
-                    </>
-                  )}
-                </div>
-
-                {/* Customer Info */}
-                <div className="p-6 md:col-span-2 flex flex-col md:flex-row gap-6 md:items-center">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-teal-50 text-[var(--hp-primary)] rounded-full flex items-center justify-center font-bold text-xl">
-                      {bill.customerName.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="text-xl font-bold text-gray-800">{bill.customerName}</p>
-                      <p className="text-gray-500 flex items-center gap-1 font-medium">
-                        <Phone size={14} /> {bill.mobile}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="border-t md:border-t-0 md:border-l pt-4 md:pt-0 md:pl-6 space-y-1">
-                    <p className="text-xs font-black text-gray-400 uppercase tracking-widest">Bill Reference</p>
-                    <p className="font-bold text-gray-700">Receipt #{bill.billNo}</p>
-                    <p className="text-xs text-gray-500 font-medium">Purchased: {new Date(bill.createdAt).toLocaleDateString()}</p>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="p-6 flex flex-col gap-3">
-                  <div className="flex justify-between items-center text-xs font-bold px-3 py-2 bg-gray-50 rounded-lg text-gray-500">
-                    <span>Auto-Sent:</span>
-                    <span className={bill.autoReminderCount > 0 ? "text-green-600" : ""}>{bill.autoReminderCount}/2</span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs font-bold px-3 py-2 bg-gray-50 rounded-lg text-gray-500">
-                    <span>Manual-Sent:</span>
-                    <span>{bill.manualReminderCount} times</span>
-                  </div>
-                  <button
-                    onClick={() => sendManualReminder(bill)}
-                    disabled={bill.metadata?.reminders_cancelled}
-                    className="w-full mt-1 bg-[var(--hp-primary)] text-white py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-teal-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                  >
-                    <Send size={16} /> Send Manual Reminder
-                  </button>
-                </div>
-
-              </div>
-              {bill.metadata?.reminders_cancelled && (
-                <div className="bg-gray-100 p-2 text-center text-xs font-bold text-gray-500 tracking-widest uppercase">
-                  Notifications Permanently Cancelled - Customer Refilled Early
-                </div>
-              )}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+        {/* Left Column: Refill Reminders */}
+        <div className="lg:col-span-2 space-y-6">
+          <h2 className="text-xl font-black text-gray-800 uppercase tracking-widest flex items-center gap-2 px-2">
+            <Clock className="text-amber-500" size={20} /> Refill Reminders
+          </h2>
+          
+          {loading ? (
+            <div className="text-center py-20 text-gray-400 font-bold">Analysing patient refill schedules...</div>
+          ) : bills.length === 0 ? (
+            <div className="bg-white rounded-3xl border border-dashed border-gray-200 p-20 text-center">
+              <CheckCircle size={48} className="text-gray-200 mx-auto mb-4" />
+              <p className="text-xl font-bold text-gray-400">Schedule Clear</p>
             </div>
-          ))}
+          ) : (
+            <div className="space-y-4">
+              {bills.map((bill) => (
+                <div key={bill.id} className={`bg-white rounded-3xl border shadow-sm transition-all hover:shadow-xl overflow-hidden ${bill.remainingDays <= 0 ? 'border-red-100' : 'border-gray-50'}`}>
+                  <div className="grid grid-cols-1 md:grid-cols-4">
+                    <div className={`p-6 flex flex-col items-center justify-center text-center border-b md:border-b-0 md:border-r ${bill.remainingDays <= 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
+                       {bill.remainingDays <= 0 ? (
+                         <div className="text-red-600 font-black">
+                            <AlertCircle className="mx-auto mb-1" />
+                            <div className="uppercase text-[10px] tracking-widest">Urgent</div>
+                            <div className="text-2xl leading-none font-black">{Math.abs(bill.remainingDays)}d</div>
+                            <div className="text-[10px] opacity-70">OVERDUE</div>
+                         </div>
+                       ) : (
+                         <div className="text-amber-600 font-black">
+                            <Clock className="mx-auto mb-1" />
+                            <div className="uppercase text-[10px] tracking-widest">Upcoming</div>
+                            <div className="text-2xl leading-none font-black">{bill.remainingDays}d</div>
+                            <div className="text-[10px] opacity-70">REMAINING</div>
+                         </div>
+                       )}
+                    </div>
+                    
+                    <div className="p-6 md:col-span-2">
+                       <div className="flex items-center gap-4 mb-3">
+                          <div className="w-10 h-10 bg-[var(--hp-primary)] text-white rounded-xl flex items-center justify-center font-black">
+                            {bill.customerName.charAt(0)}
+                          </div>
+                          <div>
+                            <h3 className="font-black text-gray-800 text-lg leading-tight">{bill.customerName}</h3>
+                            <p className="text-gray-400 text-sm font-bold">{bill.mobile}</p>
+                          </div>
+                       </div>
+                       <div className="flex gap-4 text-[10px] font-black uppercase tracking-widest text-gray-400 border-t pt-3">
+                          <div className="flex items-center gap-1"><Info size={12} /> Bill #{bill.billNo}</div>
+                          <div className="flex items-center gap-1"><Calendar size={12} /> {new Date(bill.createdAt).toLocaleDateString()}</div>
+                       </div>
+                    </div>
+
+                    <div className="p-6 bg-gray-50/50 flex flex-col justify-center gap-2">
+                       <button
+                         onClick={() => sendManualReminder(bill)}
+                         disabled={bill.metadata?.reminders_cancelled}
+                         className="w-full bg-[var(--hp-primary)] text-white py-2.5 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-teal-700 transition shadow-sm disabled:opacity-30"
+                       >
+                         Send Reminder
+                       </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+
+        {/* Right Column: System Alerts */}
+        <div className="space-y-6">
+          <h2 className="text-xl font-black text-gray-800 uppercase tracking-widest flex items-center gap-2 px-2">
+            <Info className="text-blue-500" size={20} /> System Alerts
+          </h2>
+          
+          <div className="bg-gray-50 rounded-3xl p-4 border border-gray-100 min-h-[400px] space-y-4">
+             {loading ? (
+               <div className="text-center py-10 text-gray-400 font-bold">Syncing logs...</div>
+             ) : systemAlerts.length === 0 ? (
+               <div className="text-center py-20">
+                  <Bell className="text-gray-200 mx-auto mb-2 opacity-30" size={40} />
+                  <p className="text-gray-300 font-bold uppercase text-xs tracking-widest">Logs Clear</p>
+               </div>
+             ) : (
+               systemAlerts.map(alert => (
+                 <div key={alert.id} className={`p-4 rounded-2xl shadow-sm border group relative transition-all ${alert.type === 'message' ? 'bg-teal-50 border-teal-100' : 'bg-white border-gray-100'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                       {alert.type === 'message' ? <Send size={14} className="text-teal-600" /> : <Info size={14} className="text-blue-500" />}
+                       <span className={`text-[10px] font-black uppercase tracking-widest ${alert.type === 'message' ? 'text-teal-600' : 'text-blue-500'}`}>
+                         {alert.type === 'message' ? 'SMS Sent' : 'System Alert'}
+                       </span>
+                    </div>
+                    <p className="text-sm font-bold text-gray-700 leading-relaxed mb-1">
+                      {alert.text}
+                    </p>
+                    {alert.message && (
+                      <div className="bg-white/60 p-2.5 rounded-lg border border-teal-200/50 text-[11px] font-medium text-gray-500 italic mt-2">
+                        "{alert.message}"
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between border-t border-gray-50 mt-3 pt-2">
+                       <span className="text-[9px] font-black text-gray-400 uppercase">
+                         {new Date(alert.created_at || alert.createdAt).toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'})}
+                       </span>
+                       <button 
+                         onClick={() => deleteAlert(alert.id)}
+                         className="text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                         <Trash2 size={12} />
+                       </button>
+                    </div>
+                 </div>
+               ))
+             )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
+

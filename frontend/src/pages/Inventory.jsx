@@ -34,21 +34,24 @@ function StatusBadge({ qty = 0, expiry }) {
   const days = daysUntil(expiry);
   let label = "Healthy";
   let classes = "bg-teal-50 text-teal-700 border-teal-100";
+  let icon = null;
 
   if (days <= 0) {
     label = "Expired";
-    classes = "bg-red-50 text-red-700 border-red-100";
+    classes = "bg-red-100 text-red-800 border-red-200 animate-pulse";
+    icon = <Clock size={12} className="mr-1" />;
   } else if (qty <= 5) {
     label = "Low Stock";
-    classes = "bg-amber-50 text-amber-700 border-amber-100";
+    classes = "bg-amber-100 text-amber-800 border-amber-200 shadow-sm";
+    icon = <AlertTriangle size={12} className="mr-1" />;
   } else if (days <= 30) {
     label = "Near Expiry";
     classes = "bg-blue-50 text-blue-700 border-blue-100";
   }
 
   return (
-    <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-tight border ${classes}`}>
-      {label}
+    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border flex items-center justify-center ${classes}`}>
+      {icon} {label}
     </span>
   );
 }
@@ -57,7 +60,7 @@ export default function Inventory() {
   const [inventory, setInventory] = useState([]);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
-  const [newMed, setNewMed] = useState({ name: "", batch: "", price: "", qty: "", expiry: "" });
+  const [newMed, setNewMed] = useState({ name: "", companyName: "", size: "", batch: "", price: "", qty: "", expiry: "" });
   const [editingId, setEditingId] = useState(null);
   const [editData, setEditData] = useState({});
   const [loading, setLoading] = useState(false);
@@ -130,7 +133,7 @@ export default function Inventory() {
       const payload = { ...newMed, price: Number(newMed.price), qty: Number(newMed.qty) };
       const data = await api.inventory.create(payload);
       setInventory((prev) => [{ ...data, id: data._id || data.id, qty: Number(data.qty), price: Number(data.price) }, ...prev]);
-      setNewMed({ name: "", batch: "", price: "", qty: "", expiry: "" });
+      setNewMed({ name: "", companyName: "", size: "", batch: "", price: "", qty: "", expiry: "" });
       setShowModal(false);
     } catch (err) {
       console.error(err);
@@ -152,6 +155,8 @@ export default function Inventory() {
     setEditingId(item.id);
     setEditData({
       ...item,
+      companyName: item.companyName || "",
+      size: item.size || "",
       qty: String(item.qty ?? ""),
       price: String(item.price ?? ""),
       expiry: expiryDate ? expiryDate.toISOString().slice(0, 10) : "",
@@ -284,7 +289,8 @@ export default function Inventory() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-50/50 border-b border-gray-100">
-                <th className="px-6 py-5 text-sm font-black text-gray-500 uppercase tracking-widest">Medicine & Batch</th>
+                <th className="px-6 py-5 text-sm font-black text-gray-500 uppercase tracking-widest">Medicine Details</th>
+                <th className="px-6 py-5 text-sm font-black text-gray-500 uppercase tracking-widest">Batch</th>
                 <th className="px-6 py-5 text-sm font-black text-gray-500 uppercase tracking-widest text-center">In Stock</th>
                 <th className="px-6 py-5 text-sm font-black text-gray-500 uppercase tracking-widest text-right">Unit Price</th>
                 <th className="px-6 py-5 text-sm font-black text-gray-500 uppercase tracking-widest">Expiry Date</th>
@@ -306,15 +312,26 @@ export default function Inventory() {
                     <td className="px-6 py-5">
                       {editingId === item.id ? (
                         <div className="space-y-2">
-                          <input type="text" value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} className="w-full p-2 border rounded-lg text-sm" />
-                          <input type="text" value={editData.batch} onChange={e => setEditData({...editData, batch: e.target.value})} className="w-full p-2 border rounded-lg text-xs font-mono bg-gray-50" />
+                          <input type="text" value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} className="w-full p-2 border rounded-lg text-sm font-bold" placeholder="Name" />
+                          <input type="text" value={editData.companyName} onChange={e => setEditData({...editData, companyName: e.target.value})} className="w-full p-2 border rounded-lg text-xs" placeholder="Company" />
+                          <input type="text" value={editData.size} onChange={e => setEditData({...editData, size: e.target.value})} className="w-full p-2 border rounded-lg text-xs" placeholder="Size (e.g. 10 tabs)" />
                         </div>
                       ) : (
                         <div>
                           <p className="font-black text-gray-900 text-lg leading-tight">{item.name}</p>
-                          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">Batch: {item.batch}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] font-black bg-gray-100 text-gray-500 px-2 py-0.5 rounded uppercase tracking-wider">{item.companyName || "N/A"}</span>
+                            <span className="text-[10px] font-black bg-teal-50 text-teal-600 px-2 py-0.5 rounded uppercase tracking-wider">{item.size || "Size N/A"}</span>
+                          </div>
                         </div>
                       )}
+                    </td>
+                    <td className="px-6 py-5">
+                       {editingId === item.id ? (
+                         <input type="text" value={editData.batch} onChange={e => setEditData({...editData, batch: e.target.value})} className="w-full p-2 border rounded-lg text-xs font-mono bg-gray-50" />
+                       ) : (
+                         <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">#{item.batch}</p>
+                       )}
                     </td>
                     <td className="px-6 py-5 text-center">
                        {editingId === item.id ? (
@@ -378,7 +395,15 @@ export default function Inventory() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="md:col-span-2">
                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Medicine Name</label>
-                  <input type="text" value={newMed.name} onChange={e => setNewMed({ ...newMed, name: e.target.value })} className="w-full px-5 py-3.5 bg-gray-50 border-transparent border focus:border-[var(--hp-primary)] focus:bg-white rounded-2xl focus:outline-none focus:ring-4 focus:ring-teal-500/10 font-bold transition-all" placeholder="e.g. Paracetamol 500mg" />
+                  <input type="text" value={newMed.name} onChange={e => setNewMed({ ...newMed, name: e.target.value })} className="w-full px-5 py-3.5 bg-gray-50 border-transparent border focus:border-[var(--hp-primary)] focus:bg-white rounded-2xl focus:outline-none focus:ring-4 focus:ring-teal-500/10 font-bold transition-all" placeholder="e.g. Paracetamol" />
+                </div>
+                <div className="md:col-span-1">
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Company Name</label>
+                  <input type="text" value={newMed.companyName} onChange={e => setNewMed({ ...newMed, companyName: e.target.value })} className="w-full px-5 py-3.5 bg-gray-50 border-transparent border focus:border-[var(--hp-primary)] focus:bg-white rounded-2xl focus:outline-none focus:ring-4 focus:ring-teal-500/10 font-bold transition-all" placeholder="e.g. Cipla" />
+                </div>
+                <div className="md:col-span-1">
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Medicine Size / Pack</label>
+                  <input type="text" value={newMed.size} onChange={e => setNewMed({ ...newMed, size: e.target.value })} className="w-full px-5 py-3.5 bg-gray-50 border-transparent border focus:border-[var(--hp-primary)] focus:bg-white rounded-2xl focus:outline-none focus:ring-4 focus:ring-teal-500/10 font-bold transition-all" placeholder="e.g. 10 Tablets" />
                 </div>
                 <div>
                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Batch Number</label>

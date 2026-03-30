@@ -13,6 +13,7 @@ const seedLowStock = async () => {
     const lowStockMeds = [
       {
         name: "Insulin Glargine Pen",
+        category: "Injections",
         batch: "B90112",
         price: 850.50,
         qty: 3,  // LOW STOCK
@@ -20,6 +21,7 @@ const seedLowStock = async () => {
       },
       {
         name: "EpiPen Auto-Injector",
+        category: "Injections",
         batch: "B92334",
         price: 3200.00,
         qty: 1,  // CRITICAL LOW STOCK
@@ -27,6 +29,7 @@ const seedLowStock = async () => {
       },
       {
         name: "Asthma Inhaler (Salbutamol)",
+        category: "Supplements",
         batch: "B44321",
         price: 450.00,
         qty: 4,  // LOW STOCK
@@ -34,6 +37,7 @@ const seedLowStock = async () => {
       },
       {
         name: "Covid Test Kit",
+        category: "Others",
         batch: "B10011",
         price: 250.00,
         qty: 8,  // LOW STOCK
@@ -41,6 +45,7 @@ const seedLowStock = async () => {
       },
       {
         name: "High-Dose Vitamin D3 (60K IU)",
+        category: "Supplements",
         batch: "B55543",
         price: 150.00,
         qty: 2,  // CRITICAL LOW STOCK

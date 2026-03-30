@@ -32,7 +32,9 @@ const generateMedicines = (count) => {
     // Expiry between 1 month ago and 24 months in the future
     expiry.setMonth(expiry.getMonth() + Math.floor(Math.random() * 25) - 1);
 
-    meds.push({ name, batch, price, qty, expiry });
+    const category = form === "Tablet" ? "Tablets" : form === "Capsule" ? "Capsules" : form === "Syrup" ? "Syrup" : "Others";
+    
+    meds.push({ name, category, batch, price, qty, expiry });
   }
   return meds;
 };

@@ -82,35 +82,47 @@ export const api = {
       return res.json();
     }
   },
-  reminders: {
+  notifications: {
     getAll: async () => {
-      const res = await fetch(`${API_URL}/reminders`);
-      if (!res.ok) throw new Error("Failed to fetch reminders");
+      const res = await fetch(`${API_URL}/notifications`);
+      if (!res.ok) throw new Error("Failed to fetch notifications");
       return res.json();
     },
     create: async (data) => {
-      const res = await fetch(`${API_URL}/reminders`, {
+      const res = await fetch(`${API_URL}/notifications`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data)
       });
-      if (!res.ok) throw new Error("Failed to create reminder");
+      if (!res.ok) throw new Error("Failed to create notification");
       return res.json();
     },
     update: async (id, data) => {
-      const res = await fetch(`${API_URL}/reminders/${id}`, {
+      const res = await fetch(`${API_URL}/notifications/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data)
       });
-      if (!res.ok) throw new Error("Failed to update reminder");
+      if (!res.ok) throw new Error("Failed to update notification");
       return res.json();
     },
     delete: async (id) => {
-      const res = await fetch(`${API_URL}/reminders/${id}`, {
+      const res = await fetch(`${API_URL}/notifications/${id}`, {
         method: "DELETE"
       });
-      if (!res.ok) throw new Error("Failed to delete reminder");
+      if (!res.ok) throw new Error("Failed to delete notification");
+      return res.json();
+    }
+  },
+  analytics: {
+    getPerformance: async () => {
+      const res = await fetch(`${API_URL}/analytics`);
+      if (!res.ok) throw new Error("Failed to fetch performance stats");
+      return res.json();
+    },
+    getReceipts: async () => {
+      const res = await fetch(`${API_URL}/analytics/receipts`);
+      if (!res.ok) throw new Error("Failed to fetch detailed receipts");
       return res.json();
     }
   }

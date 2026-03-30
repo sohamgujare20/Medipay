@@ -15,6 +15,8 @@ const medicineNames = [
   "Copernicium", "Roentgenium", "Darmstadtium", "Meitnerium", "Hassium", "Bohrium", "Seaborgium", "Dubnium", "Jellium", "Rutherfordium"
 ];
 
+const categories = ["Tablets", "Syrup", "Capsules", "Supplements", "Injections"];
+
 const generateMedicines = (count) => {
   const meds = [];
   for (let i = 0; i < count; i++) {
@@ -26,7 +28,9 @@ const generateMedicines = (count) => {
     const expiry = new Date();
     expiry.setMonth(expiry.getMonth() + Math.floor(Math.random() * 24) - 2); // mostly future, some expired
 
-    meds.push({ name, batch, price, qty, expiry });
+    const category = categories[Math.floor(Math.random() * categories.length)];
+
+    meds.push({ name, category, batch, price, qty, expiry });
   }
   return meds;
 };

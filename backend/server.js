@@ -5,7 +5,11 @@ const cors = require('cors');
 
 const Inventory = require('./models/Inventory');
 const Bill = require('./models/Bill');
-const Reminder = require('./models/Reminder');
+const Notification = require('./models/Notification');
+const Receipt = require('./models/Receipt');
+const Analytics = require('./models/Analytics');
+const MessagingService = require('./services/MessagingService');
+
 
 const app = express();
 app.use(cors());
@@ -101,7 +105,9 @@ app.post('/api/bills/sms', async (req, res) => {
 // Get all bills
 app.get('/api/bills', async (req, res) => {
   try {
-    const bills = await Bill.find().sort({ createdAt: -1 });
+    const bills = await Bill.find()
+      .populate('items')
+      .sort({ createdAt: -1 });
     res.json(bills);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -119,15 +125,18 @@ app.post('/api/bills', async (req, res) => {
       billData.bill_no = lastBill && lastBill.bill_no ? lastBill.bill_no + 1 : 1;
     }
 
-    const actualDeductedItems = [];
+    // Step 1: Create the Bill Header
+    const newBill = new Bill({ ...billData, items: [] });
+    const savedBill = await newBill.save();
 
-    // Reduce inventory stringently using FEFO (First-Expired-First-Out)
+    const receiptIds = [];
+
+    // Step 2: Process each item
     for (const item of items) {
       if (!item.name || !item.qty) continue;
       let qtyToDeduct = item.qty;
 
-      // Find all batches for this medicine name, sorted by expiry ascending (nearest expiry first)
-      // null expiries come last ideally, but ascending date puts oldest dates first.
+      // Find all batches for this medicine name, sorted by expiry ascending
       const batches = await Inventory.find({ name: item.name }).sort({ expiry: 1 });
 
       for (let b of batches) {
@@ -139,46 +148,98 @@ app.post('/api/bills', async (req, res) => {
           qtyToDeduct -= deduct;
           await b.save();
 
-          // Push the EXACT batch that was deducted to the receipt
-          actualDeductedItems.push({
-            id: b._id.toString(),
+          // Create Receipt record
+          const receipt = new Receipt({
+            billId: savedBill._id,
+            inventoryId: b._id,
             name: b.name,
+            category: b.category || "Others",
             batch: b.batch,
+            companyName: b.companyName,
+            size: b.size,
             qty: deduct,
-            price: b.price || item.price
+            price: b.price || item.price,
+            totalPrice: deduct * (b.price || item.price),
+            date: savedBill.createdAt
           });
+          const savedReceipt = await receipt.save();
+          receiptIds.push(savedReceipt._id);
+
+          // Update Analytics Performance
+          await Analytics.findOneAndUpdate(
+            { inventoryId: b._id },
+            { 
+              $inc: { totalUnitsSold: deduct, totalRevenue: deduct * (b.price || item.price) },
+              $set: { lastSold: new Date(), medicineName: b.name, category: b.category || "Others" },
+              $setOnInsert: { performanceScore: 0 }
+            },
+            { upsert: true, new: true }
+          );
         }
       }
 
-      // If there's leftover qtyToDeduct (insufficient stock), log it anyway to balance the total
+      // Handle Out of Stock case (log it as a receipt too but maybe with a flag or specific mark)
       if (qtyToDeduct > 0) {
-        actualDeductedItems.push({
-          ...item,
+        const receipt = new Receipt({
+          billId: savedBill._id,
+          inventoryId: new mongoose.Types.ObjectId(), // dummy or specific ID
+          name: item.name,
+          category: "Unknown",
+          batch: "OUT_OF_STOCK",
           qty: qtyToDeduct,
-          batch: "OUT_OF_STOCK"
+          price: item.price,
+          totalPrice: qtyToDeduct * item.price,
+          date: savedBill.createdAt
         });
+        const savedReceipt = await receipt.save();
+        receiptIds.push(savedReceipt._id);
       }
     }
 
-    const newBill = new Bill({ ...billData, items: actualDeductedItems });
-    const savedBill = await newBill.save();
+    // Step 3: Link items back to Bill
+    savedBill.items = receiptIds;
+    await savedBill.save();
 
-    // Cancel old reminders for the same mobile when a new bill is created early
+    // Cancel old reminders for the same mobile
     if (savedBill.mobile) {
       await Bill.updateMany(
-        { 
-          mobile: savedBill.mobile, 
-          _id: { $ne: savedBill._id } 
-        },
-        { 
-          $set: { "metadata.reminders_cancelled": true } 
-        }
+        { mobile: savedBill.mobile, _id: { $ne: savedBill._id } },
+        { $set: { "metadata.reminders_cancelled": true } }
       );
+    }
+
+    // --- NEW: Conditional Notification Storage ---
+    if (savedBill.days_to_refill) {
+      await Notification.create({
+        text: `Refill tracking STARTED for ${savedBill.customer_name} (Bill #${savedBill.bill_no})`,
+        type: 'system',
+        completed: false
+      });
+      console.log(`[SYSTEM] Refill notification ACTIVATED for ${savedBill.customer_name}`);
     }
 
     res.status(201).json(savedBill);
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// --- Analytics Endpoints ---
+app.get('/api/analytics', async (req, res) => {
+  try {
+    const stats = await Analytics.find().sort({ totalRevenue: -1 });
+    res.json(stats);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/analytics/receipts', async (req, res) => {
+  try {
+    const receipts = await Receipt.find().sort({ createdAt: -1 });
+    res.json(receipts);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -209,19 +270,19 @@ app.delete('/api/bills/:id', async (req, res) => {
   }
 });
 
-// --- Reminders Endpoints ---
-app.get('/api/reminders', async (req, res) => {
+// --- Notifications Endpoints ---
+app.get('/api/notifications', async (req, res) => {
   try {
-    const items = await Reminder.find().sort({ createdAt: -1 });
+    const items = await Notification.find().sort({ createdAt: -1 });
     res.json(items);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/reminders', async (req, res) => {
+app.post('/api/notifications', async (req, res) => {
   try {
-    const newItem = new Reminder(req.body);
+    const newItem = new Notification(req.body);
     const saved = await newItem.save();
     res.status(201).json(saved);
   } catch (err) {
@@ -229,9 +290,9 @@ app.post('/api/reminders', async (req, res) => {
   }
 });
 
-app.put('/api/reminders/:id', async (req, res) => {
+app.put('/api/notifications/:id', async (req, res) => {
   try {
-    const updated = await Reminder.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const updated = await Notification.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
   } catch (err) {
@@ -239,9 +300,9 @@ app.put('/api/reminders/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/reminders/:id', async (req, res) => {
+app.delete('/api/notifications/:id', async (req, res) => {
   try {
-    const del = await Reminder.findByIdAndDelete(req.params.id);
+    const del = await Notification.findByIdAndDelete(req.params.id);
     if (!del) return res.status(404).json({ error: "Not found" });
     res.json(del);
   } catch (err) {
@@ -249,7 +310,6 @@ app.delete('/api/reminders/:id', async (req, res) => {
   }
 });
 
-// --- Automated Reminders Cron Simulation ---
 // Runs every 1 minute to check for bills that need reminders
 setInterval(async () => {
   try {
@@ -274,16 +334,26 @@ setInterval(async () => {
       
       // 1 Day Before (-1 day) logic
       if (diffDays <= 1 && diffDays > 0 && !md.sms_1day_before) {
-        console.log(`\n[AUTO-SMS] 📢 REMINDER SENT TO ${bill.mobile}: Dear ${bill.customer_name}, your refill for Bill #${bill.bill_no} is due tomorrow! We are waiting for you at MediStore.\n`);
+        const sms = await MessagingService.sendRefillReminder(bill.customer_name, bill.mobile, bill.days_to_refill, false, bill.bill_no);
         await Bill.findByIdAndUpdate(bill._id, { $set: { "metadata.sms_1day_before": true } });
-        await Reminder.create({ text: `Auto: ${bill.customer_name || 'Customer'} (Bill #${bill.bill_no}) refill is due tomorrow!📱`, completed: false });
+        await Notification.create({ 
+          text: `Auto-SMS Sent: Refill due tomorrow for ${bill.customer_name} 📱`, 
+          message: sms.message,
+          type: 'message',
+          completed: true 
+        });
       }
       
       // 1 Day After (+1 day) logic
       if (diffDays <= -1 && diffDays > -2 && !md.sms_1day_after) {
-        console.log(`\n[AUTO-SMS] 📢 REMINDER SENT TO ${bill.mobile}: Dear ${bill.customer_name}, your refill for Bill #${bill.bill_no} was due yesterday. Please visit MediStore soon!\n`);
+        const sms = await MessagingService.sendRefillReminder(bill.customer_name, bill.mobile, bill.days_to_refill, true, bill.bill_no);
         await Bill.findByIdAndUpdate(bill._id, { $set: { "metadata.sms_1day_after": true } });
-        await Reminder.create({ text: `Auto: ${bill.customer_name || 'Customer'} (Bill #${bill.bill_no}) refill was due yesterday! Follow up.📞`, completed: false });
+        await Notification.create({ 
+          text: `Auto-SMS Alert: Refill OVERDUE for ${bill.customer_name} 📞`, 
+          message: sms.message,
+          type: 'message',
+          completed: true 
+        });
       }
     }
   } catch(err) {

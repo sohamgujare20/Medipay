@@ -12,6 +12,7 @@ export default function Receipts() {
   const navigate = useNavigate();
   const [receipts, setReceipts] = useState([]);
   const [search, setSearch] = useState("");
+  const [dateFilter, setDateFilter] = useState("All Time");
   const [loading, setLoading] = useState(true);
 
   // Stats calculation
@@ -65,11 +66,25 @@ export default function Receipts() {
     }
   };
 
-  const filteredReceipts = receipts.filter(r => 
-    r.customerName.toLowerCase().includes(search.toLowerCase()) ||
-    r.mobile.includes(search) ||
-    String(r.billNo).includes(search)
-  );
+  const filteredReceipts = receipts.filter(r => {
+    const rDate = new Date(r.createdAt || r.created_at);
+    const now = new Date();
+    
+    // Date Filtering
+    if (dateFilter === "Today") {
+      if (rDate.toDateString() !== now.toDateString()) return false;
+    } else if (dateFilter === "This Month") {
+      if (rDate.getMonth() !== now.getMonth() || rDate.getFullYear() !== now.getFullYear()) return false;
+    }
+
+    // Search Filtering
+    const matchesSearch = 
+      r.customerName.toLowerCase().includes(search.toLowerCase()) ||
+      r.mobile.includes(search) ||
+      String(r.billNo).includes(search);
+    
+    return matchesSearch;
+  });
 
   return (
     <div className="animate-in fade-in duration-700 max-w-7xl mx-auto px-4 pb-20">
@@ -114,9 +129,9 @@ export default function Receipts() {
         </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm mb-8">
-        <div className="relative group">
+      {/* Search & Filters */}
+      <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm mb-8 flex flex-col md:flex-row gap-4 items-center">
+        <div className="relative group flex-1">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[var(--hp-primary)] transition-colors" size={20} />
           <input
             type="text"
@@ -125,6 +140,21 @@ export default function Receipts() {
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border-transparent border focus:border-[var(--hp-primary)] focus:bg-white rounded-2xl focus:outline-none focus:ring-4 focus:ring-teal-500/10 font-medium transition-all"
           />
+        </div>
+        <div className="flex bg-gray-50 p-1.5 rounded-2xl border border-gray-100">
+           {["Today", "This Month", "All Time"].map((filter) => (
+             <button
+               key={filter}
+               onClick={() => setDateFilter(filter)}
+               className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                 dateFilter === filter 
+                 ? "bg-white text-[var(--hp-primary)] shadow-sm border border-gray-100" 
+                 : "text-gray-400 hover:text-gray-600"
+               }`}
+             >
+               {filter}
+             </button>
+           ))}
         </div>
       </div>
 

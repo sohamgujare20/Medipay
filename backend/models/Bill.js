@@ -1,13 +1,5 @@
 const mongoose = require('mongoose');
 
-const itemSchema = new mongoose.Schema({
-  id: { type: String }, // might refer to inventory id
-  name: { type: String },
-  batch: { type: String },
-  qty: { type: Number },
-  price: { type: Number }
-}, { _id: false });
-
 const billSchema = new mongoose.Schema({
   bill_no: { type: Number, required: true },
   total: { type: Number, required: true },
@@ -15,7 +7,7 @@ const billSchema = new mongoose.Schema({
   customer_name: { type: String, default: "Guest" },
   mobile: { type: String },
   days_to_refill: { type: Number },
-  items: [itemSchema],
+  items: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Receipt' }],
   metadata: { type: Object, default: {} }
 }, { timestamps: true });
 
