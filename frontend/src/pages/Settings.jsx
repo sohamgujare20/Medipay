@@ -2,14 +2,11 @@ import React, { useEffect, useState } from "react";
 import { 
   ShieldCheck, 
   Lock, 
-  Key, 
   History, 
-  Database,
-  Terminal,
   UserCheck,
   AlertTriangle
 } from "lucide-react";
-import toast, { Toaster } from "react-hot-toast";
+import { Toaster } from "react-hot-toast";
 
 export default function Settings() {
   const [user, setUser] = useState(null);

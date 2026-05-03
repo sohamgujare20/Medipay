@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { 
-  Camera, Sparkles, Eye, Loader2, PlusCircle, CheckCircle2, Info,
+  Camera, Sparkles, Eye, Loader2, CheckCircle2,
   RefreshCw, X, PackagePlus, ShoppingBag, AlertCircle,
   Upload, FileSpreadsheet, FileText, ChevronDown, ChevronUp, Zap, Pill, ArrowRight,
   ImagePlus, Search, Type, Trash2

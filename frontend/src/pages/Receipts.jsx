@@ -54,6 +54,7 @@ export default function Receipts() {
 
   useEffect(() => {
     loadBills();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleDelete = async (id) => {
