@@ -36,7 +36,8 @@ export default function Billing() {
           // NEW: DeepSeek AI Identification Fallback
           toast.loading(`AI identifying barcode: ${code}`, { id: 'ai-scan' });
           try {
-            const res = await fetch("http://localhost:5000/api/ai/analyze", {
+            const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+            const res = await fetch(`${apiUrl}/ai/analyze`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ text: code })
@@ -282,7 +283,8 @@ export default function Billing() {
     }
 
     try {
-      const orderResponse = await fetch("http://localhost:5000/api/payment/create-order", {
+      const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+      const orderResponse = await fetch(`${apiUrl}/payment/create-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount: grandTotal }),
@@ -303,7 +305,8 @@ export default function Billing() {
         order_id: orderData.id,
         handler: async function (response) {
           try {
-            const verifyResponse = await fetch("http://localhost:5000/api/payment/verify", {
+            const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+            const verifyResponse = await fetch(`${apiUrl}/payment/verify`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({

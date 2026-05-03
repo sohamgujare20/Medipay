@@ -55,7 +55,8 @@ export default function AIAgents() {
 
   const fetchHistory = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/import-history');
+      const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+      const res = await fetch(`${apiUrl}/import-history`);
       if (res.ok) setImportHistory(await res.json());
     } catch (err) { console.error('Failed to fetch history', err); }
   };
@@ -63,7 +64,8 @@ export default function AIAgents() {
   const deleteHistory = async (id, sourceName) => {
     if (!window.confirm(`Are you sure you want to delete "${sourceName}" and remove its medicines from the inventory?`)) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/import-history/${id}`, { method: 'DELETE' });
+      const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+      const res = await fetch(`${apiUrl}/import-history/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       toast.success(`Deleted import record and reverted ${data.deletedCount} medicines!`);
@@ -95,7 +97,8 @@ export default function AIAgents() {
     setAnalyzing(true);
     setResults(null);
     try {
-      const res = await fetch('http://localhost:5000/api/ai/analyze', {
+      const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+      const res = await fetch(`${apiUrl}/ai/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: imageData })
@@ -146,7 +149,8 @@ export default function AIAgents() {
         sourceName,
         sourceType
       };
-      const res = await fetch('http://localhost:5000/api/inventory/ai-save', {
+      const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+      const res = await fetch(`${apiUrl}/inventory/ai-save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(inventoryData)
@@ -178,7 +182,8 @@ export default function AIAgents() {
     if (!searchText.trim()) return;
     setAnalyzing(true); setResults(null); setCapturedImage(null);
     try {
-      const res = await fetch('http://localhost:5000/api/ai/analyze', {
+      const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+      const res = await fetch(`${apiUrl}/ai/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: searchText.trim() })
@@ -223,7 +228,8 @@ export default function AIAgents() {
     const name = typeof m === 'string' ? m : m.name;
     setFetchingDetail(true);
     try {
-      const res = await fetch(`http://localhost:5000/api/inventory/medicine?name=${encodeURIComponent(name)}`);
+      const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+      const res = await fetch(`${apiUrl}/inventory/medicine?name=${encodeURIComponent(name)}`);
       if (res.ok) {
         setHistoryMedicineDetail(await res.json());
         setShowHistoryDetailModal(true);
@@ -259,7 +265,8 @@ export default function AIAgents() {
     const formData = new FormData();
     formData.append('file', selectedFile);
     try {
-      const res = await fetch('http://localhost:5000/api/inventory/import', { method: 'POST', body: formData });
+      const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+      const res = await fetch(`${apiUrl}/inventory/import`, { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Import failed'); setImporting(false); return; }
       setImportResult(data);
