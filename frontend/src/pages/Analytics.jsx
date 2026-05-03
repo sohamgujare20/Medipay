@@ -4,7 +4,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Filter, TrendingUp, DollarSign, Package, AlertCircle, Calendar, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { Filter, TrendingUp, IndianRupee, Package, AlertCircle, Calendar, X, ChevronLeft, ChevronRight } from "lucide-react";
 
 const COLORS = ["#0f766e", "#0369a1", "#f59e0b", "#ef4444", "#6366f1", "#8b5cf6", "#ec4899", "#10b981"];
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -401,7 +401,7 @@ export default function Analytics() {
         <>
           {/* Info Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-             <StatCard title="Total Revenue" value={`₹${totalSales.toLocaleString()}`} icon={<DollarSign/>} color="emerald" />
+             <StatCard title="Total Revenue" value={`₹${totalSales.toLocaleString()}`} icon={<IndianRupee/>} color="emerald" />
              <StatCard title="Top Performer" value={topMedicine} icon={<TrendingUp/>} color="blue" />
              <StatCard title="Units Moved" value={totalUnits} icon={<Package/>} color="amber" />
              <StatCard title="Active Alerts" value={notifications.filter(n => !n.completed).length} icon={<AlertCircle/>} color="red" />

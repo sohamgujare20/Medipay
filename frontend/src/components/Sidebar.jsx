@@ -12,7 +12,9 @@ import {
   Bell,
   Menu,
   Sparkles,
-  Activity
+  Activity,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 
 const menuItems = [
@@ -46,7 +48,13 @@ export default function Sidebar({ collapsed, setCollapsed, user }) {
               </div>
             )}
           </div>
-          </div>
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            aria-label="Toggle sidebar"
+            className="p-1.5 rounded-lg border border-gray-100 hover:bg-gray-50 text-gray-400 hover:text-teal-600 transition-all hidden md:flex items-center justify-center"
+          >
+            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          </button>
         </div>
 
         {/* Navigation Section */}
@@ -79,6 +87,8 @@ export default function Sidebar({ collapsed, setCollapsed, user }) {
               </React.Fragment>
             );
           })}
+
+
         </nav>
 
         {/* User Profile Section */}
