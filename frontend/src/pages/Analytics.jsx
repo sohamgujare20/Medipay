@@ -401,7 +401,7 @@ export default function Analytics() {
         <>
           {/* Info Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-             <StatCard title="Total Revenue" value={`₹${totalSales.toLocaleString()}`} icon={<IndianRupee/>} color="emerald" />
+             <StatCard title="Total Revenue" value={"₹" + totalSales.toLocaleString()} icon={<IndianRupee/>} color="emerald" />
              <StatCard title="Top Performer" value={topMedicine} icon={<TrendingUp/>} color="blue" />
              <StatCard title="Units Moved" value={totalUnits} icon={<Package/>} color="amber" />
              <StatCard title="Active Alerts" value={notifications.filter(n => !n.completed).length} icon={<AlertCircle/>} color="red" />
