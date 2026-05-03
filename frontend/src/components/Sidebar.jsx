@@ -46,13 +46,7 @@ export default function Sidebar({ collapsed, setCollapsed, user }) {
               </div>
             )}
           </div>
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            aria-label="Toggle sidebar"
-            className="p-2 rounded-xl bg-white border border-transparent hover:border-gray-100 hover:bg-gray-50 hover:shadow-sm transition-all text-gray-400 hover:text-gray-600 hidden md:block shrink-0"
-          >
-            <Menu size={18} />
-          </button>
+          </div>
         </div>
 
         {/* Navigation Section */}

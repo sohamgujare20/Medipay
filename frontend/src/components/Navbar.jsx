@@ -7,13 +7,6 @@ export default function Navbar({ collapsed, setCollapsed, user, onLogout, isInst
   return (
     <header className="flex items-center justify-between px-8 py-4 bg-white/70 backdrop-blur-xl border-b border-gray-200/60 sticky top-0 z-40 shadow-sm transition-all duration-300">
       <div className="flex items-center gap-5">
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="p-2.5 rounded-xl bg-white border border-gray-100 hover:bg-gray-50 hover:shadow-sm transition-all text-gray-600 active:scale-95 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-          aria-label="Toggle sidebar"
-        >
-          <Menu size={20} />
-        </button>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-teal-500 to-blue-600 flex items-center justify-center text-white shadow-md shadow-teal-500/20 hidden sm:flex">
             <Activity size={18} strokeWidth={3} />
