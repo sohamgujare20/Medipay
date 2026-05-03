@@ -18,7 +18,42 @@
     --hp-success: #10b981;
     --hp-warning: #f59e0b;
     --hp-danger: #ef4444;
+    
+    /* AI Agents Design Tokens */
+    --ai-gradient-start: #1e293b;
+    --ai-gradient-end: #0f172a;
+    --ai-accent-glow: rgba(20, 184, 166, 0.3);
+    --ai-primary: #14b8a6;
+    --glass-bg: rgba(255, 255, 255, 0.05);
+    --glass-border: rgba(255, 255, 255, 0.1);
 }
+
+.ai-glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ai-glass-card:hover {
+    border-color: rgba(20, 184, 166, 0.4);
+    box-shadow: 0 0 20px var(--ai-accent-glow);
+    transform: translateY(-4px);
+}
+
+.ai-glow-text {
+    text-shadow: 0 0 10px var(--ai-accent-glow);
+}
+
+@keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 5px var(--ai-accent-glow); }
+    50% { box-shadow: 0 0 20px var(--ai-accent-glow); }
+}
+
+.animate-pulse-glow {
+    animation: pulse-glow 2s infinite ease-in-out;
+}
+
 
 
 /* 4. Full height */

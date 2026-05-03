@@ -46,14 +46,28 @@ export default function Notification() {
         .filter((b) => b.daysToRefill)
         .map((b) => {
           const billDate = new Date(b.createdAt);
-          const daysPassed = Math.floor((now - billDate) / (1000 * 60 * 60 * 24));
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const billDay = new Date(billDate);
+          billDay.setHours(0, 0, 0, 0);
+          const daysPassed = Math.round((today - billDay) / (1000 * 60 * 60 * 24));
           b.remainingDays = b.daysToRefill - daysPassed;
           return b;
         })
-        .sort((a, b) => a.remainingDays - b.remainingDays);
+        .filter((b) => b.remainingDays >= -30)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
       setBills(needsReminder);
-      setSystemAlerts(alertsData || []);
+      
+      const twoDaysAgo = new Date();
+      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+      
+      const filteredAlerts = (alertsData || []).filter(alert => {
+        const alertDate = new Date(alert.created_at || alert.createdAt);
+        return alertDate >= twoDaysAgo;
+      });
+
+      setSystemAlerts(filteredAlerts);
     } catch (err) {
       console.error("Failed to load notifications:", err);
     } finally {
@@ -65,28 +79,7 @@ export default function Notification() {
     loadData();
   }, []);
 
-  const sendManualReminder = async (bill) => {
-    alert(`📢 Manual Reminder sent to ${bill.customerName}:\n\n"Dear ${bill.customerName}, your medicines are almost finished! Please visit MediStore soon."`);
-    
-    const newMetadata = {
-      ...bill.metadata,
-      manualReminderCount: (bill.manualReminderCount || 0) + 1,
-      last_manual_reminder: new Date().toISOString()
-    };
-    
-    try {
-      await api.bills.updateMetadata(bill.id, newMetadata);
-      setBills((prev) =>
-        prev.map((b) =>
-          b.id === bill.id
-            ? { ...b, manualReminderCount: newMetadata.manualReminderCount, metadata: newMetadata }
-            : b
-        )
-      );
-    } catch (error) {
-        console.warn("Failed to update reminder metrics.", error);
-    }
-  };
+
 
   const deleteAlert = async (id) => {
     if(!window.confirm("Delete this alert?")) return;
@@ -120,125 +113,129 @@ export default function Notification() {
           <Clock size={18} /> Refresh Activity
         </button>
       </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-        {/* Left Column: Refill Reminders */}
-        <div className="lg:col-span-2 space-y-6">
-          <h2 className="text-xl font-black text-gray-800 uppercase tracking-widest flex items-center gap-2 px-2">
-            <Clock className="text-amber-500" size={20} /> Refill Reminders
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 h-[calc(100vh-220px)] min-h-[600px] overflow-hidden">
+        {/* Left Column: Refill Reminders (Expanded Space) */}
+        <div className="lg:col-span-3 flex flex-col h-full overflow-hidden">
+          <h2 className="text-xl font-black text-gray-800 uppercase tracking-widest flex items-center justify-between gap-2 px-2 mb-6 shrink-0">
+            <span className="flex items-center gap-2">
+              <Clock className="text-amber-500" size={20} /> Patient Refill Queue
+            </span>
+            <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-3 py-1 rounded-full">{bills.length} Records</span>
           </h2>
           
-          {loading ? (
-            <div className="text-center py-20 text-gray-400 font-bold">Analysing patient refill schedules...</div>
-          ) : bills.length === 0 ? (
-            <div className="bg-white rounded-3xl border border-dashed border-gray-200 p-20 text-center">
-              <CheckCircle size={48} className="text-gray-200 mx-auto mb-4" />
-              <p className="text-xl font-bold text-gray-400">Schedule Clear</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {bills.map((bill) => (
-                <div key={bill.id} className={`bg-white rounded-3xl border shadow-sm transition-all hover:shadow-xl overflow-hidden ${bill.remainingDays <= 0 ? 'border-red-100' : 'border-gray-50'}`}>
-                  <div className="grid grid-cols-1 md:grid-cols-4">
-                    <div className={`p-6 flex flex-col items-center justify-center text-center border-b md:border-b-0 md:border-r ${bill.remainingDays <= 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
-                       {bill.remainingDays <= 0 ? (
-                         <div className="text-red-600 font-black">
-                            <AlertCircle className="mx-auto mb-1" />
-                            <div className="uppercase text-[10px] tracking-widest">Urgent</div>
-                            <div className="text-2xl leading-none font-black">{Math.abs(bill.remainingDays)}d</div>
-                            <div className="text-[10px] opacity-70">OVERDUE</div>
-                         </div>
-                       ) : (
-                         <div className="text-amber-600 font-black">
-                            <Clock className="mx-auto mb-1" />
-                            <div className="uppercase text-[10px] tracking-widest">Upcoming</div>
-                            <div className="text-2xl leading-none font-black">{bill.remainingDays}d</div>
-                            <div className="text-[10px] opacity-70">REMAINING</div>
-                         </div>
-                       )}
+          <div className="flex-1 overflow-y-auto pr-4 space-y-5 custom-scrollbar pb-10">
+            {loading ? (
+              <div className="text-center py-20 text-gray-400 font-bold animate-pulse uppercase tracking-[0.2em]">Analysing Schedules...</div>
+            ) : bills.length === 0 ? (
+              <div className="bg-white rounded-3xl border border-dashed border-gray-200 p-20 text-center">
+                <CheckCircle size={48} className="text-gray-200 mx-auto mb-4" />
+                <p className="text-xl font-bold text-gray-400">Schedule Clear</p>
+              </div>
+            ) : (
+              bills.map((bill) => (
+                <div key={bill.id} className={`bg-white rounded-[2.5rem] border shadow-sm transition-all hover:shadow-xl overflow-hidden ${bill.remainingDays <= 0 ? 'border-red-100' : 'border-gray-100'}`}>
+                  <div className="flex flex-col md:flex-row">
+                    {/* Large Refill Days Mention */}
+                    <div className={`w-full md:w-48 p-8 flex flex-col items-center justify-center text-center border-b md:border-b-0 md:border-r ${bill.remainingDays <= 0 ? 'bg-red-50/50' : 'bg-teal-50/30'}`}>
+                       <div className={`text-[10px] font-black uppercase tracking-widest mb-1 ${bill.remainingDays <= 0 ? 'text-red-500' : 'text-teal-600'}`}>
+                         {bill.remainingDays <= 0 ? 'Overdue By' : 'Refill In'}
+                       </div>
+                       <div className={`text-6xl font-black leading-none ${bill.remainingDays <= 0 ? 'text-red-600' : 'text-teal-700'}`}>
+                         {Math.abs(bill.remainingDays)}<span className="text-2xl ml-1">d</span>
+                       </div>
+                       <div className="text-[9px] font-bold text-gray-400 mt-2 uppercase tracking-tighter">
+                         Cycle: {bill.daysToRefill} Days
+                       </div>
                     </div>
                     
-                    <div className="p-6 md:col-span-2">
-                       <div className="flex items-center gap-4 mb-3">
-                          <div className="w-10 h-10 bg-[var(--hp-primary)] text-white rounded-xl flex items-center justify-center font-black">
-                            {bill.customerName.charAt(0)}
+                    <div className="p-8 flex-1">
+                       <div className="flex items-center justify-between mb-6">
+                         <div className="flex items-center gap-4">
+                            <div className="w-14 h-14 bg-gradient-to-br from-teal-500 to-teal-600 text-white rounded-2xl flex items-center justify-center font-black shadow-lg shadow-teal-500/20">
+                              {bill.customerName.charAt(0)}
+                            </div>
+                            <div>
+                              <h3 className="font-black text-gray-900 text-xl leading-tight">{bill.customerName}</h3>
+                              <p className="text-gray-500 font-bold flex items-center gap-1 mt-1"><Phone size={14} className="text-teal-500" /> {bill.mobile}</p>
+                            </div>
+                         </div>
+                         <div className="text-right hidden sm:block">
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Due Date</p>
+                            <p className="text-sm font-black text-gray-800">{new Date(new Date(bill.createdAt).setDate(new Date(bill.createdAt).getDate() + bill.daysToRefill)).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})}</p>
+                         </div>
+                       </div>
+                       
+                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between">
+                            <span className="text-[10px] font-black text-gray-400 uppercase">Pre-alert SMS</span>
+                            {(bill.metadata?.sms_1day_before || bill.remainingDays < -2) ? (
+                              <span className="text-[10px] font-black text-teal-600 bg-white px-3 py-1 rounded-full border border-teal-100 flex items-center gap-1 shadow-sm"><CheckCircle size={12}/> DELIVERED</span>
+                            ) : (
+                              <span className="text-[10px] font-black text-amber-500 bg-white px-3 py-1 rounded-full border border-amber-100 flex items-center gap-1 shadow-sm"><Clock size={12}/> PENDING</span>
+                            )}
                           </div>
-                          <div>
-                            <h3 className="font-black text-gray-800 text-lg leading-tight">{bill.customerName}</h3>
-                            <p className="text-gray-400 text-sm font-bold">{bill.mobile}</p>
+                          <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between">
+                            <span className="text-[10px] font-black text-gray-400 uppercase">Overdue SMS</span>
+                            {(bill.metadata?.sms_1day_after || bill.remainingDays < -2) ? (
+                              <span className="text-[10px] font-black text-teal-600 bg-white px-3 py-1 rounded-full border border-teal-100 flex items-center gap-1 shadow-sm"><CheckCircle size={12}/> DELIVERED</span>
+                            ) : (
+                              <span className="text-[10px] font-black text-amber-500 bg-white px-3 py-1 rounded-full border border-amber-100 flex items-center gap-1 shadow-sm"><Clock size={12}/> PENDING</span>
+                            )}
                           </div>
                        </div>
-                       <div className="flex gap-4 text-[10px] font-black uppercase tracking-widest text-gray-400 border-t pt-3">
-                          <div className="flex items-center gap-1"><Info size={12} /> Bill #{bill.billNo}</div>
-                          <div className="flex items-center gap-1"><Calendar size={12} /> {new Date(bill.createdAt).toLocaleDateString()}</div>
-                       </div>
-                    </div>
-
-                    <div className="p-6 bg-gray-50/50 flex flex-col justify-center gap-2">
-                       <button
-                         onClick={() => sendManualReminder(bill)}
-                         disabled={bill.metadata?.reminders_cancelled}
-                         className="w-full bg-[var(--hp-primary)] text-white py-2.5 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-teal-700 transition shadow-sm disabled:opacity-30"
-                       >
-                         Send Reminder
-                       </button>
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </div>
         </div>
 
-        {/* Right Column: System Alerts */}
-        <div className="space-y-6">
-          <h2 className="text-xl font-black text-gray-800 uppercase tracking-widest flex items-center gap-2 px-2">
-            <Info className="text-blue-500" size={20} /> System Alerts
+        {/* Right Column: System Alerts (Condensed/Short) */}
+        <div className="lg:col-span-1 flex flex-col h-full overflow-hidden">
+          <h2 className="text-xl font-black text-gray-800 uppercase tracking-widest flex items-center justify-between gap-2 px-2 mb-6 shrink-0">
+            <span className="flex items-center gap-2">
+              <Info className="text-blue-500" size={18} /> Logs
+            </span>
           </h2>
           
-          <div className="bg-gray-50 rounded-3xl p-4 border border-gray-100 min-h-[400px] space-y-4">
-             {loading ? (
-               <div className="text-center py-10 text-gray-400 font-bold">Syncing logs...</div>
-             ) : systemAlerts.length === 0 ? (
-               <div className="text-center py-20">
-                  <Bell className="text-gray-200 mx-auto mb-2 opacity-30" size={40} />
-                  <p className="text-gray-300 font-bold uppercase text-xs tracking-widest">Logs Clear</p>
-               </div>
-             ) : (
-               systemAlerts.map(alert => (
-                 <div key={alert.id} className={`p-4 rounded-2xl shadow-sm border group relative transition-all ${alert.type === 'message' ? 'bg-teal-50 border-teal-100' : 'bg-white border-gray-100'}`}>
-                    <div className="flex items-center gap-2 mb-2">
-                       {alert.type === 'message' ? <Send size={14} className="text-teal-600" /> : <Info size={14} className="text-blue-500" />}
-                       <span className={`text-[10px] font-black uppercase tracking-widest ${alert.type === 'message' ? 'text-teal-600' : 'text-blue-500'}`}>
-                         {alert.type === 'message' ? 'SMS Sent' : 'System Alert'}
-                       </span>
-                    </div>
-                    <p className="text-sm font-bold text-gray-700 leading-relaxed mb-1">
-                      {alert.text}
-                    </p>
-                    {alert.message && (
-                      <div className="bg-white/60 p-2.5 rounded-lg border border-teal-200/50 text-[11px] font-medium text-gray-500 italic mt-2">
-                        "{alert.message}"
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between border-t border-gray-50 mt-3 pt-2">
-                       <span className="text-[9px] font-black text-gray-400 uppercase">
-                         {new Date(alert.created_at || alert.createdAt).toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'})}
-                       </span>
-                       <button 
-                         onClick={() => deleteAlert(alert.id)}
-                         className="text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                        >
-                         <Trash2 size={12} />
-                       </button>
-                    </div>
-                 </div>
-               ))
-             )}
+          <div className="flex-1 overflow-y-auto pr-1 space-y-3 bg-white p-3 rounded-[2rem] border border-gray-100 custom-scrollbar shadow-inner">
+            {loading ? (
+              <div className="text-center py-10 text-gray-400 font-bold animate-pulse">Syncing...</div>
+            ) : systemAlerts.length === 0 ? (
+              <div className="text-center py-20 opacity-30">
+                 <Bell className="text-gray-200 mx-auto mb-2" size={24} />
+                 <p className="text-[9px] font-black uppercase tracking-widest">Clear</p>
+              </div>
+            ) : (
+              systemAlerts.map(alert => (
+                <div key={alert.id} className="p-3 rounded-xl border border-gray-100 group relative transition-all bg-gray-50/50 hover:bg-white hover:border-blue-200">
+                   <div className="flex items-center justify-between mb-1.5">
+                     <div className="flex items-center gap-1.5">
+                        {alert.type === 'message' ? <Send size={10} className="text-teal-600" /> : <Info size={10} className="text-blue-400" />}
+                        <span className={`text-[8px] font-black uppercase tracking-widest ${alert.type === 'message' ? 'text-teal-600' : 'text-blue-400'}`}>
+                          {alert.type === 'message' ? 'SMS' : 'Alert'}
+                        </span>
+                     </div>
+                     <button 
+                        onClick={() => deleteAlert(alert.id)}
+                        className="text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                     >
+                        <Trash2 size={10} />
+                     </button>
+                   </div>
+                   <p className="text-[10px] font-bold text-gray-600 leading-tight">
+                     {alert.text}
+                   </p>
+                   <div className="mt-2 text-[8px] font-black text-gray-300 uppercase">
+                     {new Date(alert.created_at || alert.createdAt).toLocaleString([], {day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit'})}
+                   </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
     </div>
   );
 }
-

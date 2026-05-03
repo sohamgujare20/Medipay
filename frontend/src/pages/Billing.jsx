@@ -1,7 +1,9 @@
 // src/pages/Billing.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { Search, Trash2, Plus, Minus, User, Phone, Clock, ShoppingCart, X, FileText } from "lucide-react";
+import { Search, Trash2, Plus, Minus, User, Phone, Clock, ShoppingCart, X, FileText, Camera, Scan } from "lucide-react";
+import toast, { Toaster } from "react-hot-toast";
 import { QRCodeCanvas } from "qrcode.react";
+import { useZxing } from "react-zxing";
 import { api } from "../api";
 export default function Billing() {
   const [medicines, setMedicines] = useState([]);
@@ -16,7 +18,59 @@ export default function Billing() {
   const [billNo, setBillNo] = useState(1);
   const [errors, setErrors] = useState({});
   const [printBillData, setPrintBillData] = useState(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanMode, setScanMode] = useState("items"); // "items" or "payment"
   const realtimeChannelRef = useRef(null);
+
+  // ---------- ZXing Scanner Logic ----------
+  const { ref: zxingRef } = useZxing({
+    async onDecodeResult(result) {
+      const code = result.getText();
+      if (scanMode === "items") {
+        const med = medicines.find(m => m.batch === code || m.name === code);
+        if (med) {
+          handleAddToCart(med);
+          toast.success(`Scanned: ${med.name}`);
+          setIsScanning(false);
+        } else {
+          // NEW: DeepSeek AI Identification Fallback
+          toast.loading(`AI identifying barcode: ${code}`, { id: 'ai-scan' });
+          try {
+            const res = await fetch("http://localhost:5000/api/ai/analyze", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: code })
+            });
+            const data = await res.json();
+            
+            if (data.medicines && data.medicines.length > 0) {
+              const aiName = data.medicines[0].name;
+              // Search in local stock for a name match
+              const match = medicines.find(m => 
+                m.name.toLowerCase().includes(aiName.split(' ')[0].toLowerCase())
+              );
+              
+              if (match) {
+                handleAddToCart(match);
+                toast.success(`AI Identified: ${match.name}`, { id: 'ai-scan' });
+                setIsScanning(false);
+              } else {
+                toast.error(`AI says: ${aiName} (Not in Stock)`, { id: 'ai-scan' });
+              }
+            } else {
+              toast.error("AI could not identify this code.", { id: 'ai-scan' });
+            }
+          } catch (err) {
+            toast.error("AI Identification failed.", { id: 'ai-scan' });
+          }
+        }
+      } else if (scanMode === "payment") {
+        setIsScanning(false);
+        handleRazorpayPayment();
+      }
+    },
+    paused: !isScanning,
+  });
 
   // ---------- Load medicines from Supabase inventory (with localStorage fallback) ----------
   const loadMedicines = async () => {
@@ -186,6 +240,10 @@ export default function Billing() {
         _isSaved: generateBill
       });
 
+      if (daysToRefill) {
+        toast.success(`Refill tracking STARTED for ${customerName.trim() || "Customer"}!`);
+      }
+
       // clear cart + inputs and prepare next bill no
       setCart([]);
       setCustomerName("");
@@ -202,17 +260,105 @@ export default function Billing() {
     }
   };
 
-  // Auto-save bill for Online Payment (same behavior as before)
-  useEffect(() => {
-    if (paymentMode === "online" && cart.length > 0) {
-      const timer = setTimeout(() => saveBill(true), 5000);
-      return () => clearTimeout(timer);
+  // ---------- Razorpay Integration ----------
+  const loadScript = (src) => {
+    return new Promise((resolve) => {
+      const script = document.createElement("script");
+      script.src = src;
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const handleRazorpayPayment = async () => {
+    if (cart.length === 0) return setErrors({ cart: "Cart is empty" });
+    if (!validateInputs()) return;
+
+    const res = await loadScript("https://checkout.razorpay.com/v1/checkout.js");
+    if (!res) {
+      alert("Razorpay SDK failed to load. Are you online?");
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paymentMode, cart]);
+
+    try {
+      const orderResponse = await fetch("http://localhost:5000/api/payment/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: grandTotal }),
+      });
+      const orderData = await orderResponse.json();
+
+      if (!orderData || !orderData.id) {
+        alert("Failed to create Razorpay order");
+        return;
+      }
+
+      const options = {
+        key: "rzp_test_SjmWo0mVdOQRBW",
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: "MediPay Pharmacy",
+        description: "Payment for Medical Bill",
+        order_id: orderData.id,
+        handler: async function (response) {
+          try {
+            const verifyResponse = await fetch("http://localhost:5000/api/payment/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+            const verifyData = await verifyResponse.json();
+
+            if (verifyData.success) {
+              saveBill(true);
+            } else {
+              alert("Payment verification failed. Please contact support.");
+            }
+          } catch (err) {
+            console.error(err);
+            alert("Verification request failed");
+          }
+        },
+        prefill: {
+          name: customerName,
+          contact: mobile,
+          method: "upi",
+        },
+        config: {
+          display: {
+            blocks: {
+              upi: {
+                name: "Scan & Pay via UPI",
+                instruments: [
+                  { method: "upi", flows: ["qr"] }
+                ],
+              },
+            },
+            sequence: ["block.upi"],
+            preferences: { show_default_blocks: true },
+          },
+        },
+        theme: {
+          color: "#0d9488",
+        },
+      };
+
+      const paymentObject = new window.Razorpay(options);
+      paymentObject.open();
+    } catch (err) {
+      console.error(err);
+      alert("Something went wrong with the payment gateway");
+    }
+  };
 
   // preserve existing UI — below is your original JSX with state hooks wired to new logic
   return (    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <Toaster position="top-right" />
       {/* ===== Centerpiece Search & Cart Table (Left 75%) ===== */}
       <div className="lg:col-span-3 flex flex-col gap-6">
         
@@ -224,13 +370,20 @@ export default function Billing() {
             </span>
             <input
               type="text"
-              placeholder="Search or click here to view available inventory..."
+              placeholder="Search or scan barcode to add items..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               onFocus={() => setIsSearchFocused(true)}
               onBlur={() => setTimeout(() => setIsSearchFocused(false), 250)}
               className="flex-1 px-4 py-4 md:py-5 text-lg border-none focus:outline-none focus:ring-0 bg-transparent"
             />
+            <button 
+              onClick={() => { setScanMode("items"); setIsScanning(true); }}
+              className="px-4 py-2 mr-2 bg-teal-50 text-[var(--hp-primary)] rounded-xl hover:bg-teal-100 transition flex items-center gap-2 font-bold text-sm"
+            >
+              <Camera size={20} />
+              <span className="hidden md:inline">SCAN BARCODE</span>
+            </button>
             {searchTerm && (
               <button 
                 onClick={() => setSearchTerm("")}
@@ -511,18 +664,14 @@ export default function Billing() {
         {grandTotal > 0 && (
           <div className="mt-2">
             {paymentMode === "online" && (
-              <div className="flex flex-col items-center bg-white border-2 border-dashed border-teal-200 p-4 rounded-xl">
-                <QRCodeCanvas
-                  value={`upi://pay?pa=store@upi&pn=MediPay&am=${grandTotal.toFixed(2)}`}
-                  size={140}
-                  level="H"
-                />
-                <p className="font-exrabold text-lg mt-3 text-gray-800 tracking-wide">
-                  Pay <span className="text-[var(--hp-primary)]">₹{grandTotal.toFixed(2)}</span>
-                </p>
-                <p className="text-xs text-green-600 font-bold mt-1 tracking-wider uppercase">
-                  (Auto generates receipt on scan)
-                </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={handleRazorpayPayment}
+                  className="w-full bg-[#1da1f2] text-white py-4 rounded-xl hover:bg-[#1a91da] transition font-black text-lg tracking-widest uppercase shadow-lg shadow-blue-500/30 transform hover:-translate-y-1 flex items-center justify-center gap-3"
+                >
+                  <FileText size={22} />
+                  <span>PAY VIA RAZORPAY</span>
+                </button>
               </div>
             )}
 
@@ -612,6 +761,52 @@ export default function Billing() {
               <FileText size={20} />
               Confirm & Print Receipt
             </button>
+          </div>
+        </div>
+      )}
+      {/* Scanner Modal */}
+      {isScanning && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[2.5rem] overflow-hidden w-full max-w-md shadow-2xl animate-in zoom-in duration-300">
+            <div className="p-6 border-b flex items-center justify-between bg-teal-600 text-white">
+              <div className="flex items-center gap-3">
+                <Camera size={24} />
+                <h3 className="text-xl font-bold uppercase tracking-widest">
+                  {scanMode === "items" ? "Scanning Medicine" : "Scan to Pay"}
+                </h3>
+              </div>
+              <button onClick={() => setIsScanning(false)} className="p-2 hover:bg-white/20 rounded-full transition">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="relative aspect-square bg-black flex items-center justify-center">
+              <video ref={zxingRef} className="w-full h-full object-cover" />
+              <div className="absolute inset-0 border-[60px] border-black/40 pointer-events-none">
+                <div className="w-full h-full border-2 border-teal-400 rounded-3xl animate-pulse relative">
+                  <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-teal-400 rounded-tl-lg"></div>
+                  <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-teal-400 rounded-tr-lg"></div>
+                  <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-teal-400 rounded-bl-lg"></div>
+                  <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-teal-400 rounded-br-lg"></div>
+                </div>
+              </div>
+              <div className="absolute bottom-6 left-0 right-0 flex justify-center">
+                <div className="bg-black/60 text-white px-4 py-2 rounded-full text-xs font-bold animate-bounce">
+                  Align barcode/QR within the frame
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6 bg-gray-50 text-center">
+              <p className="text-gray-500 font-medium text-sm">
+                {scanMode === "items" 
+                  ? "Scan a medicine barcode to instantly add it to your cart." 
+                  : "Scan any QR code to quickly trigger the Razorpay gateway."}
+              </p>
+              <button onClick={() => setIsScanning(false)} className="mt-4 w-full py-3 bg-white border border-gray-200 text-gray-600 font-bold rounded-xl hover:bg-gray-100 transition uppercase tracking-widest text-xs">
+                Cancel Scanning
+              </button>
+            </div>
           </div>
         </div>
       )}
