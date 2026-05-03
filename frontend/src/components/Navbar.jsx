@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { Menu, Activity, LogOut, User, ChevronDown } from "lucide-react";
+import { Menu, Activity, LogOut, User, ChevronDown, Download } from "lucide-react";
 
-export default function Navbar({ collapsed, setCollapsed, user, onLogout }) {
+export default function Navbar({ collapsed, setCollapsed, user, onLogout, isInstallable, onInstall }) {
   const [showDropdown, setShowDropdown] = useState(false);
 
   return (
@@ -25,6 +25,16 @@ export default function Navbar({ collapsed, setCollapsed, user, onLogout }) {
       </div>
 
       <div className="flex items-center gap-5">
+        {isInstallable && (
+          <button
+            onClick={onInstall}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-full text-xs font-black shadow-lg shadow-teal-500/30 hover:shadow-teal-500/50 hover:-translate-y-0.5 transition-all active:scale-95 group"
+          >
+            <Download size={16} className="group-hover:animate-bounce" />
+            INSTALL APP
+          </button>
+        )}
+
         <div className="text-right hidden sm:block px-5 py-2 bg-gray-50/80 rounded-full border border-gray-100 shadow-inner">
           <p className="text-xs font-black text-gray-800 uppercase tracking-wider flex items-center gap-2">
             <span className="text-teal-600 flex items-center gap-1.5">

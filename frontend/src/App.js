@@ -20,7 +20,36 @@ export default function App() {
     const [collapsed, setCollapsed] = useState(window.innerWidth < 768);
     const [user, setUser] = useState(null);
     const [authChecking, setAuthChecking] = useState(true);
+    const [deferredPrompt, setDeferredPrompt] = useState(null);
     const navigate = useNavigate();
+
+    useEffect(() => {
+        console.log("PWA: Initializing event listeners...");
+        const handleBeforeInstallPrompt = (e) => {
+            console.log("PWA: beforeinstallprompt event fired!");
+            e.preventDefault();
+            setDeferredPrompt(e);
+        };
+        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+        // Check if already installed
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+            console.log("PWA: Already running in standalone mode.");
+        }
+
+        return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    }, []);
+
+    const installPWA = () => {
+        if (!deferredPrompt) return;
+        deferredPrompt.prompt();
+        deferredPrompt.userChoice.then((choiceResult) => {
+            if (choiceResult.outcome === 'accepted') {
+                console.log('User accepted the install prompt');
+            }
+            setDeferredPrompt(null);
+        });
+    };
 
     useEffect(() => {
         const handleResize = () => {
@@ -75,7 +104,14 @@ export default function App() {
             <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} user={user} /> 
             
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                <Navbar collapsed={collapsed} setCollapsed={setCollapsed} user={user} onLogout={handleLogout} /> 
+                <Navbar 
+                    collapsed={collapsed} 
+                    setCollapsed={setCollapsed} 
+                    user={user} 
+                    onLogout={handleLogout} 
+                    isInstallable={!!deferredPrompt}
+                    onInstall={installPWA}
+                /> 
                 <main className="p-4 md:p-6 overflow-auto flex-1 h-full">
                     <Routes>
                         <Route path="/" element={<Home />} /> 
